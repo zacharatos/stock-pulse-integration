@@ -788,7 +788,7 @@ if (!window.customCards?.some((c) => c.type === "stock-pulse-card")) {
     name: "Stock Pulse Card",
     description: "What you have at home, what is running low, and a shopping list that fills itself.",
     preview: true,
-    documentationURL: "https://github.com/zacharatos/stock-pulse",
+    documentationURL: "https://github.com/zacharatos/stock-pulse-integration",
   });
   defineElement("stock-pulse-card", StockPulseCard).then(() =>
     // eslint-disable-next-line no-console

@@ -25,7 +25,7 @@ A card only runs while a dashboard is open. The shopping-list loop has to work w
 
 ## Install
 
-1. HACS → ⋮ → **Custom repositories** → add `https://github.com/zacharatos/stock-pulse`, type **Integration**.
+1. HACS → ⋮ → **Custom repositories** → add `https://github.com/zacharatos/stock-pulse-integration`, type **Integration**.
 2. Install **Stock Pulse** and restart Home Assistant.
 3. **Settings → Devices & services → Add integration → Stock Pulse.** Name the inventory and pick a shopping list (any to-do entity; the built-in `todo.shopping_list` is suggested).
 4. Add the card: edit a dashboard → **Add card** → **Stock Pulse Card**.
@@ -157,7 +157,7 @@ actions:
 ```bash
 npm install
 npm run typecheck && npm test && npm run build   # card → custom_components/stock_pulse/frontend/
-pip install -r requirements_test.txt && pytest   # integration
+bash scripts/install-test-deps.sh && pytest     # integration
 python3 -m http.server 8765                      # then open /test/harness.html (?dark=1, ?lang=el, ?missing=1)
 ```
 

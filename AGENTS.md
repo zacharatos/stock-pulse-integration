@@ -45,7 +45,7 @@ When you finish, hand off instead: the files you changed (one line each), what y
 
 ```bash
 npm run typecheck && npm test && npm run build
-pytest -q
+pytest -q   # after bash scripts/install-test-deps.sh (it adds the frontend package HA needs)
 ```
 
 Rebuild after any change in `src/` and leave the bundle modified (CI fails if it is stale). For anything visual, serve the repo and open `test/harness.html` (`?dark=1`, `?lang=el`, `?missing=1`); check light, dark, Greek, a phone width, and the console.
