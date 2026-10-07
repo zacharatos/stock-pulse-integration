@@ -1,0 +1,134 @@
+add_item:
+  fields:
+    inventory: &inventory
+      selector:
+        config_entry:
+          integration: stock_pulse
+    name:
+      required: true
+      example: Toilet paper
+      selector:
+        text:
+    quantity: &quantity
+      example: 4
+      selector:
+        number:
+          min: 0
+          max: 100000
+          step: any
+          mode: box
+    unit: &unit
+      example: roll
+      selector:
+        select:
+          custom_value: true
+          translation_key: unit
+          options: [pcs, pack, roll, bottle, can, box, bag, jar, kg, g, l, ml]
+    category: &category
+      example: toiletries
+      selector:
+        select:
+          custom_value: true
+          translation_key: category
+          options: [food, drinks, frozen, cleaning, toiletries, household, baby, pets, medicine, other]
+    location: &location
+      example: bathroom
+      selector:
+        select:
+          custom_value: true
+          translation_key: location
+          options: [pantry, fridge, freezer, bathroom, cleaning, other]
+    expiry: &expiry
+      selector:
+        date:
+    min_quantity: &min_quantity
+      example: 2
+      selector:
+        number:
+          min: 0
+          max: 100000
+          step: any
+          mode: box
+    restock_quantity: &restock_quantity
+      example: 6
+      selector:
+        number:
+          min: 0
+          max: 100000
+          step: any
+          mode: box
+    auto_shop: &auto_shop
+      selector:
+        boolean:
+    notes: &notes
+      selector:
+        text:
+          multiline: true
+    icon: &icon
+      selector:
+        icon:
+
+update_item:
+  fields:
+    inventory: *inventory
+    item: &item
+      required: true
+      example: Toilet paper
+      selector:
+        text:
+    name:
+      selector:
+        text:
+    quantity: *quantity
+    unit: *unit
+    category: *category
+    location: *location
+    expiry: *expiry
+    min_quantity: *min_quantity
+    restock_quantity: *restock_quantity
+    auto_shop: *auto_shop
+    notes: *notes
+    icon: *icon
+
+remove_item:
+  fields:
+    inventory: *inventory
+    item: *item
+
+adjust_quantity:
+  fields:
+    inventory: *inventory
+    item: *item
+    amount:
+      required: true
+      example: -1
+      selector:
+        number:
+          min: -100000
+          max: 100000
+          step: any
+          mode: box
+
+add_to_shopping_list:
+  fields:
+    inventory: *inventory
+    item: *item
+
+sync_shopping_list:
+  fields:
+    inventory: *inventory
+
+get_items:
+  fields:
+    inventory: *inventory
+    only:
+      selector:
+        select:
+          translation_key: only
+          options: [all, low, out, on_shopping_list]
+    location:
+      selector:
+        text:
+    category:
+      selector:
+        text:

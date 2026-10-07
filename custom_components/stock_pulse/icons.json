@@ -1,0 +1,11 @@
+{
+  "services": {
+    "add_item": { "service": "mdi:package-variant-plus" },
+    "update_item": { "service": "mdi:package-variant" },
+    "remove_item": { "service": "mdi:package-variant-minus" },
+    "adjust_quantity": { "service": "mdi:plus-minus-variant" },
+    "add_to_shopping_list": { "service": "mdi:cart-plus" },
+    "sync_shopping_list": { "service": "mdi:cart-arrow-down" },
+    "get_items": { "service": "mdi:format-list-bulleted" }
+  }
+}

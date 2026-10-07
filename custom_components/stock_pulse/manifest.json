@@ -1,0 +1,13 @@
+{
+  "domain": "stock_pulse",
+  "name": "Stock Pulse",
+  "codeowners": ["@zacharatos"],
+  "config_flow": true,
+  "dependencies": ["frontend", "http", "todo", "websocket_api"],
+  "documentation": "https://github.com/zacharatos/stock-pulse",
+  "integration_type": "service",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/zacharatos/stock-pulse/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

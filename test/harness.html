@@ -1,0 +1,196 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Stock Pulse Card – test harness</title>
+<script src="icons.js"></script>
+<style>
+  :root {
+    --primary-color: #03a9f4;
+    --primary-text-color: #212121;
+    --secondary-text-color: #727272;
+    --text-primary-color: #ffffff;
+    --card-background-color: #ffffff;
+    --divider-color: #e0e0e0;
+    --orange-color: #ff9800; --red-color: #f44336; --green-color: #4caf50;
+    --ha-card-border-radius: 12px;
+    font-family: Roboto, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body { margin: 0; padding: 24px; background: #fafafa; }
+  body.dark {
+    --primary-text-color: #e1e1e1; --secondary-text-color: #9b9b9b;
+    --card-background-color: #1c1c1c; --divider-color: rgba(225,225,225,.12);
+    background: #111111;
+  }
+  .grid { display: grid; grid-template-columns: repeat(3, 380px); gap: 16px; align-items: start; }
+  .cap { font: 12px system-ui; color: var(--secondary-text-color); margin: 0 0 6px 2px; }
+  #log { font: 12px monospace; color: var(--secondary-text-color); margin-top: 16px; white-space: pre-wrap; }
+  @media (max-width: 700px) { body { padding: 12px; } .grid { grid-template-columns: 1fr; } }
+</style>
+<script>
+  // --- Stubs for HA's own elements -------------------------------------------------
+  class HaIcon extends HTMLElement {
+    static get observedAttributes() { return ["icon"]; }
+    set icon(v) { this._icon = v; this.draw(); } get icon() { return this._icon; }
+    attributeChangedCallback() { this._icon = this.getAttribute("icon"); this.draw(); }
+    connectedCallback() { this.style.display = "inline-flex"; this.draw(); }
+    draw() {
+      if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+      const p = window.MDI[this._icon];
+      const s = "var(--mdc-icon-size, 24px)";
+      this.shadowRoot.innerHTML = p ? `<svg viewBox="0 0 24 24" style="width:${s};height:${s};fill:currentColor"><path d="${p}"/></svg>` : `<span style="width:${s};height:${s};display:inline-block;background:red"></span>`;
+    }
+  }
+  customElements.define("ha-icon", HaIcon);
+  class HaCard extends HTMLElement {
+    constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = `<style>:host{display:block;background:var(--ha-card-background,var(--card-background-color));
+      border-radius:var(--ha-card-border-radius,12px);border:var(--ha-card-border-width,1px) solid var(--ha-card-border-color,var(--divider-color));
+      color:var(--primary-text-color);box-sizing:border-box}</style><slot></slot>`; }
+  }
+  customElements.define("ha-card", HaCard);
+
+  // A tiny ha-form: enough to show the fields and send value-changed like the real one.
+  class HaForm extends HTMLElement {
+    set schema(v) { this._schema = v; this.draw(); }
+    set data(v) { this._data = { ...v }; if (!this._drawn) this.draw(); }
+    set hass(v) {}
+    connectedCallback() { this.draw(); }
+    draw() {
+      if (!this._schema || !this._data) return;
+      this._drawn = true;
+      const label = (f) => (this.computeLabel ? this.computeLabel(f) : f.name);
+      const helper = (f) => (this.computeHelper ? this.computeHelper(f) || "" : "");
+      const field = (f) => {
+        const v = this._data[f.name] ?? "";
+        const sel = f.selector || {};
+        let input;
+        if (sel.boolean) input = `<input type="checkbox" data-n="${f.name}" ${v ? "checked" : ""}>`;
+        else if (sel.number) input = `<input type="number" step="any" data-n="${f.name}" value="${v}">`;
+        else if (sel.date) input = `<input type="date" data-n="${f.name}" value="${v}">`;
+        else if (sel.select) input = `<input list="dl-${f.name}" data-n="${f.name}" value="${(sel.select.options.find(o => o.value === v)||{}).label ?? v}"><datalist id="dl-${f.name}">${sel.select.options.map(o => `<option value="${o.label}">`).join("")}</datalist>`;
+        else if (sel.text && sel.text.multiline) input = `<textarea data-n="${f.name}" rows="2">${v}</textarea>`;
+        else input = `<input data-n="${f.name}" value="${v}">`;
+        const h = helper(f);
+        return `<label class="${sel.boolean ? "b" : ""}"><span>${label(f)}</span>${input}${h ? `<small>${h}</small>` : ""}</label>`;
+      };
+      const body = this._schema.map((s) => s.type === "grid" ? `<div class="g">${s.schema.map(field).join("")}</div>` : field(s)).join("");
+      this.innerHTML = `<style>
+        ha-form{display:flex;flex-direction:column;gap:12px}
+        ha-form .g{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px} ha-form input,ha-form textarea{min-width:0}
+        ha-form label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--secondary-text-color)}
+        ha-form label.b{flex-direction:row-reverse;justify-content:flex-end;align-items:center;gap:10px;font-size:14px;color:var(--primary-text-color)}
+        ha-form input:not([type=checkbox]),ha-form textarea{font:inherit;font-size:15px;padding:14px 12px;border-radius:4px 4px 0 0;border:none;border-bottom:1px solid var(--secondary-text-color);
+          background:color-mix(in srgb,var(--primary-text-color) 5%,transparent);color:var(--primary-text-color)}
+        ha-form small{font-size:11px}
+      </style>` + body;
+      const flat = this._schema.flatMap((s) => s.type === "grid" ? s.schema : [s]);
+      this.querySelectorAll("[data-n]").forEach((el) => el.addEventListener("input", () => {
+        const f = flat.find((x) => x.name === el.dataset.n);
+        let v = el.type === "checkbox" ? el.checked : el.value;
+        if (f.selector.number) v = v === "" ? undefined : Number(v);
+        if (f.selector.select) { const o = f.selector.select.options.find((o) => o.label === v); if (o) v = o.value; }
+        if (v === "") v = undefined;
+        this._data = { ...this._data, [f.name]: v };
+        this.dispatchEvent(new CustomEvent("value-changed", { detail: { value: this._data }, bubbles: true, composed: true }));
+      }));
+    }
+  }
+  customElements.define("ha-form", HaForm);
+  customElements.define("ha-selector", class extends HTMLElement {});
+</script>
+<script type="module">
+  const params = new URLSearchParams(location.search);
+  if (params.has("dark")) document.body.classList.add("dark");
+  const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  let n = 0;
+  const item = (name, extra) => ({
+    id: `i${++n}`, name, quantity: 1, unit: "pcs", category: null, location: null, expiry: null,
+    min_quantity: null, restock_quantity: null, auto_shop: true, notes: null, icon: null,
+    created: "", updated: "", shopping: null, shopping_dismissed: false, ...extra,
+  });
+  const items = [
+    item("Toilet paper", { quantity: 2, unit: "roll", category: "toiletries", location: "bathroom", min_quantity: 2, restock_quantity: 9,
+      shopping: { uid: "u1", summary: "Toilet paper (9 rolls)", amount: 9, auto: true } }),
+    item("Shampoo", { quantity: 1, unit: "bottle", category: "toiletries", location: "bathroom", min_quantity: 0 }),
+    item("Dishwasher tablets", { quantity: 38, unit: "pcs", category: "cleaning", location: "cleaning", min_quantity: 10 }),
+    item("Laundry detergent", { quantity: 0, unit: "bottle", category: "cleaning", location: "cleaning", min_quantity: 0,
+      shopping: { uid: "u2", summary: "Laundry detergent", amount: 1, auto: true } }),
+    item("Spaghetti", { quantity: 3, unit: "pack", category: "food", location: "pantry", min_quantity: 1 }),
+    item("Basmati rice", { quantity: 1.5, unit: "kg", category: "food", location: "pantry", expiry: day(140) }),
+    item("Olive oil", { quantity: 1, unit: "bottle", category: "food", location: "pantry", min_quantity: 1 }),
+    item("Greek yoghurt", { quantity: 2, unit: "pcs", category: "food", location: "fridge", expiry: day(1) }),
+    item("Feta", { quantity: 400, unit: "g", category: "food", location: "fridge", expiry: day(-2) }),
+    item("Milk", { quantity: 1, unit: "bottle", category: "drinks", location: "fridge", min_quantity: 1, expiry: day(4) }),
+    item("Peas", { quantity: 2, unit: "bag", category: "frozen", location: "freezer", expiry: day(200) }),
+    item("Chicken souvlaki", { quantity: 6, unit: "pcs", category: "frozen", location: "freezer", expiry: day(3) }),
+    item("Vanilla ice cream", { quantity: 1, unit: "box", category: "frozen", location: "freezer" }),
+  ];
+  const snap = () => ({
+    entry_id: "e1", title: "Home", version: "0.1.0", items: [...items].sort((a, b) => a.name.localeCompare(b.name)),
+    settings: { shopping_list: "todo.shopping_list", auto_add: true, auto_restock: true, expiring_days: 3 },
+    units: ["pcs","pack","roll","bottle","can","box","bag","jar","kg","g","l","ml"],
+    locations: ["pantry","fridge","freezer","bathroom","cleaning","other"],
+    categories: ["food","drinks","frozen","cleaning","toiletries","household","baby","pets","medicine","other"],
+  });
+  const subs = new Set();
+  const push = () => subs.forEach((cb) => cb(snap()));
+  const log = (m) => (document.getElementById("log").textContent += m + "\n");
+  const lowNow = (i) => i.min_quantity != null && i.quantity <= i.min_quantity;
+  const hass = {
+    language: params.get("lang") || "en", locale: { language: params.get("lang") || "en" }, states: {},
+    themes: { darkMode: params.has("dark") },
+    connection: {
+      subscribeMessage: async (cb, msg) => { log(JSON.stringify(msg)); subs.add(cb); setTimeout(() => cb(snap()), 50); return () => subs.delete(cb); },
+    },
+    callWS: async (msg) => {
+      log(JSON.stringify(msg));
+      const find = () => items.find((i) => i.id === msg.item_id);
+      if (msg.type === "stock_pulse/inventories") return [{ entry_id: "e1", title: "Home" }];
+      if (msg.type === "stock_pulse/item/add") { const it = item(msg.item.name, msg.item); items.push(it); push(); return it; }
+      if (msg.type === "stock_pulse/item/update") { Object.assign(find(), msg.changes); push(); return find(); }
+      if (msg.type === "stock_pulse/item/remove") { items.splice(items.indexOf(find()), 1); push(); return null; }
+      if (msg.type === "stock_pulse/item/adjust") {
+        const it = find(); it.quantity = Math.max(0, it.quantity + msg.amount);
+        if (lowNow(it) && !it.shopping) it.shopping = { uid: "x", summary: it.name, amount: 1, auto: true };
+        if (!lowNow(it) && it.shopping?.auto) it.shopping = null;
+        push(); return it;
+      }
+      if (msg.type === "stock_pulse/item/shop") { const it = find(); it.shopping = msg.on ? { uid: "m", summary: it.name, amount: 1, auto: false } : null; push(); return it; }
+      throw { code: "unknown_command", message: "Unknown command" };
+    },
+  };
+  window.hass = hass;
+  await import("../custom_components/stock_pulse/frontend/stock-pulse-card.js");
+  const configs = [
+    ["Default (grouped by category)", { type: "custom:stock-pulse-card" }],
+    ["Freezer only, sorted by date", { type: "custom:stock-pulse-card", title: "Freezer", icon: "mdi:snowflake", locations: ["freezer"], group_by: "none", sort: "expiry" }],
+    ["Compact, by location, max height", { type: "custom:stock-pulse-card", compact: true, group_by: "location", show_search: false, max_height: "420px" }],
+  ];
+  const grid = document.getElementById("grid");
+  for (const [cap, config] of configs) {
+    const wrap = document.createElement("div");
+    wrap.innerHTML = `<div class="cap">${cap}</div>`;
+    const card = document.createElement("stock-pulse-card");
+    card.setConfig(config);
+    card.hass = hass;
+    wrap.appendChild(card);
+    grid.appendChild(wrap);
+  }
+  if (params.has("missing")) {
+    const wrap = document.createElement("div");
+    wrap.innerHTML = `<div class="cap">Integration missing</div>`;
+    const card = document.createElement("stock-pulse-card");
+    card.setConfig({ type: "custom:stock-pulse-card" });
+    card.hass = { ...hass, connection: { subscribeMessage: () => Promise.reject({ code: "unknown_command", message: "x" }) } };
+    wrap.appendChild(card);
+    grid.appendChild(wrap);
+  }
+</script>
+</head>
+<body>
+  <div class="grid" id="grid"></div>
+  <div id="log"></div>
+</body>
+</html>

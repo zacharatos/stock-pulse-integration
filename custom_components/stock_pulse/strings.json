@@ -1,0 +1,333 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "New inventory",
+        "description": "Track what you have at home and keep a shopping list topped up automatically.",
+        "data": {
+          "name": "Name",
+          "shopping_list": "Shopping list",
+          "auto_add": "Add low items to the shopping list",
+          "auto_restock": "Restock when bought",
+          "match_by_name": "Also restock items typed into the list by hand",
+          "remove_completed": "Remove bought items from the list",
+          "expiring_days": "Expiring soon (days)"
+        },
+        "data_description": {
+          "name": "For example Home or Holiday house. Each inventory has its own items and sensors.",
+          "shopping_list": "A to-do list (for example the built-in Shopping list). Leave empty to use the inventory on its own.",
+          "auto_add": "When an item drops to or below its threshold, it is written to the shopping list.",
+          "auto_restock": "Ticking an entry off the shopping list adds the bought amount back to the item.",
+          "match_by_name": "A ticked-off entry such as “Milk” or “Milk (2 bottles)” restocks the item with that name.",
+          "remove_completed": "Delete an entry from the list once it has been restocked, instead of leaving it ticked off.",
+          "expiring_days": "Items whose date is this close count as expiring soon."
+        }
+      }
+    },
+    "error": {
+      "name_exists": "An inventory with this name already exists."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Inventory options",
+        "data": {
+          "shopping_list": "Shopping list",
+          "auto_add": "Add low items to the shopping list",
+          "auto_restock": "Restock when bought",
+          "match_by_name": "Also restock items typed into the list by hand",
+          "remove_completed": "Remove bought items from the list",
+          "expiring_days": "Expiring soon (days)"
+        },
+        "data_description": {
+          "shopping_list": "A to-do list (for example the built-in Shopping list). Leave empty to use the inventory on its own.",
+          "auto_add": "When an item drops to or below its threshold, it is written to the shopping list.",
+          "auto_restock": "Ticking an entry off the shopping list adds the bought amount back to the item.",
+          "match_by_name": "A ticked-off entry such as “Milk” or “Milk (2 bottles)” restocks the item with that name.",
+          "remove_completed": "Delete an entry from the list once it has been restocked, instead of leaving it ticked off.",
+          "expiring_days": "Items whose date is this close count as expiring soon."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "items": {
+        "name": "In stock",
+        "unit_of_measurement": "items"
+      },
+      "low_stock": {
+        "name": "Low stock",
+        "unit_of_measurement": "items"
+      },
+      "expiring_soon": {
+        "name": "Expiring soon",
+        "unit_of_measurement": "items"
+      },
+      "expired": {
+        "name": "Expired",
+        "unit_of_measurement": "items"
+      }
+    }
+  },
+  "exceptions": {
+    "item_not_found": {
+      "message": "There is no item “{item}” in {inventory}."
+    },
+    "inventory_not_found": {
+      "message": "Inventory “{inventory}” was not found."
+    },
+    "inventory_required": {
+      "message": "There is more than one inventory: choose one."
+    },
+    "no_inventory": {
+      "message": "No inventory is set up yet."
+    },
+    "no_shopping_list": {
+      "message": "This inventory has no shopping list. Pick one in the integration's options."
+    }
+  },
+  "selector": {
+    "unit": {
+      "options": {
+        "pcs": "Pieces",
+        "pack": "Packs",
+        "roll": "Rolls",
+        "bottle": "Bottles",
+        "can": "Cans",
+        "box": "Boxes",
+        "bag": "Bags",
+        "jar": "Jars",
+        "kg": "kg",
+        "g": "g",
+        "l": "L",
+        "ml": "ml"
+      }
+    },
+    "category": {
+      "options": {
+        "food": "Food",
+        "drinks": "Drinks",
+        "frozen": "Frozen",
+        "cleaning": "Cleaning",
+        "toiletries": "Toiletries",
+        "household": "Household",
+        "baby": "Baby",
+        "pets": "Pets",
+        "medicine": "Medicine",
+        "other": "Other"
+      }
+    },
+    "location": {
+      "options": {
+        "pantry": "Pantry",
+        "fridge": "Fridge",
+        "freezer": "Freezer",
+        "bathroom": "Bathroom",
+        "cleaning": "Cleaning cupboard",
+        "other": "Other"
+      }
+    },
+    "only": {
+      "options": {
+        "all": "All",
+        "low": "Low stock",
+        "out": "Out of stock",
+        "on_shopping_list": "On the shopping list"
+      }
+    }
+  },
+  "services": {
+    "add_item": {
+      "name": "Add item",
+      "description": "Adds an item to the inventory. If one with the same name exists, its quantity is increased instead.",
+      "fields": {
+        "inventory": {
+          "name": "Inventory",
+          "description": "Which inventory. Can be left out when you have only one."
+        },
+        "name": {
+          "name": "Name",
+          "description": "What the item is called."
+        },
+        "quantity": {
+          "name": "Quantity",
+          "description": "How much you have."
+        },
+        "unit": {
+          "name": "Unit",
+          "description": "How it is counted: pieces, packs, rolls, kg... or your own word."
+        },
+        "category": {
+          "name": "Category",
+          "description": "A built-in category or your own."
+        },
+        "location": {
+          "name": "Location",
+          "description": "Where it is kept, for example the freezer."
+        },
+        "expiry": {
+          "name": "Best before",
+          "description": "Date the item expires."
+        },
+        "min_quantity": {
+          "name": "Threshold",
+          "description": "At or below this amount the item is low and goes on the shopping list."
+        },
+        "restock_quantity": {
+          "name": "Buy amount",
+          "description": "How much to buy each time. Leave empty to buy just enough to get above the threshold."
+        },
+        "auto_shop": {
+          "name": "Auto shopping list",
+          "description": "Add this item to the shopping list automatically when it is low."
+        },
+        "notes": {
+          "name": "Notes",
+          "description": "Anything else: brand, shop, size."
+        },
+        "icon": {
+          "name": "Icon",
+          "description": "Icon shown in the card."
+        }
+      }
+    },
+    "update_item": {
+      "name": "Update item",
+      "description": "Changes the details of an item.",
+      "fields": {
+        "inventory": {
+          "name": "Inventory",
+          "description": "Which inventory. Can be left out when you have only one."
+        },
+        "name": {
+          "name": "New name",
+          "description": "Rename the item."
+        },
+        "quantity": {
+          "name": "Quantity",
+          "description": "How much you have."
+        },
+        "unit": {
+          "name": "Unit",
+          "description": "How it is counted: pieces, packs, rolls, kg... or your own word."
+        },
+        "category": {
+          "name": "Category",
+          "description": "A built-in category or your own."
+        },
+        "location": {
+          "name": "Location",
+          "description": "Where it is kept, for example the freezer."
+        },
+        "expiry": {
+          "name": "Best before",
+          "description": "Date the item expires."
+        },
+        "min_quantity": {
+          "name": "Threshold",
+          "description": "At or below this amount the item is low and goes on the shopping list."
+        },
+        "restock_quantity": {
+          "name": "Buy amount",
+          "description": "How much to buy each time. Leave empty to buy just enough to get above the threshold."
+        },
+        "auto_shop": {
+          "name": "Auto shopping list",
+          "description": "Add this item to the shopping list automatically when it is low."
+        },
+        "notes": {
+          "name": "Notes",
+          "description": "Anything else: brand, shop, size."
+        },
+        "icon": {
+          "name": "Icon",
+          "description": "Icon shown in the card."
+        },
+        "item": {
+          "name": "Item",
+          "description": "Name or id of the item."
+        }
+      }
+    },
+    "remove_item": {
+      "name": "Remove item",
+      "description": "Deletes an item from the inventory.",
+      "fields": {
+        "inventory": {
+          "name": "Inventory",
+          "description": "Which inventory. Can be left out when you have only one."
+        },
+        "item": {
+          "name": "Item",
+          "description": "Name or id of the item."
+        }
+      }
+    },
+    "adjust_quantity": {
+      "name": "Adjust quantity",
+      "description": "Adds to or takes from an item's quantity, for example -1 when you open a pack.",
+      "fields": {
+        "inventory": {
+          "name": "Inventory",
+          "description": "Which inventory. Can be left out when you have only one."
+        },
+        "item": {
+          "name": "Item",
+          "description": "Name or id of the item."
+        },
+        "amount": {
+          "name": "Amount",
+          "description": "Added to the quantity. Use a negative number to use some up."
+        }
+      }
+    },
+    "add_to_shopping_list": {
+      "name": "Add to shopping list",
+      "description": "Puts an item on the shopping list now, whatever its stock.",
+      "fields": {
+        "inventory": {
+          "name": "Inventory",
+          "description": "Which inventory. Can be left out when you have only one."
+        },
+        "item": {
+          "name": "Item",
+          "description": "Name or id of the item."
+        }
+      }
+    },
+    "sync_shopping_list": {
+      "name": "Sync shopping list",
+      "description": "Reads the shopping list now and restocks anything ticked off.",
+      "fields": {
+        "inventory": {
+          "name": "Inventory",
+          "description": "Which inventory. Can be left out when you have only one."
+        }
+      }
+    },
+    "get_items": {
+      "name": "Get items",
+      "description": "Returns the items of an inventory, for scripts and assistants.",
+      "fields": {
+        "inventory": {
+          "name": "Inventory",
+          "description": "Which inventory. Can be left out when you have only one."
+        },
+        "only": {
+          "name": "Show",
+          "description": "Which items to return."
+        },
+        "location": {
+          "name": "Location",
+          "description": "Only items in this location."
+        },
+        "category": {
+          "name": "Category",
+          "description": "Only items in this category."
+        }
+      }
+    }
+  }
+}
