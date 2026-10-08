@@ -1,6 +1,6 @@
 {
   "name": "stock-pulse",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "A household inventory for Home Assistant with a shopping-list loop, and the Lovelace card to manage it.",
   "private": true,
   "type": "module",
