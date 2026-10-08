@@ -2,16 +2,19 @@ import { css } from "lit";
 
 export const cardStyles = css`
   :host {
-    /* Colours map onto Home Assistant's palette so themes keep working. Colour is reserved for
-       what needs attention (low, out, expiring); everything else stays neutral. */
-    --sp-accent: var(--primary-color);
-    --sp-warn: var(--orange-color, #ff9800);
-    --sp-bad: var(--red-color, #f44336);
-    --sp-neutral-bg: color-mix(in srgb, var(--primary-text-color) 6%, transparent);
-    --sp-neutral-bg-hover: color-mix(in srgb, var(--primary-text-color) 10%, transparent);
-    --sp-radius: var(--ha-card-border-radius, 12px);
-    --sp-control-radius: var(--ha-card-features-border-radius, var(--feature-border-radius, 12px));
-    --sp-row-height: 56px;
+    /* Colour is reserved for what needs attention (low, out, expiring); everything else stays neutral.
+       Every variable reads the shared Pulse token first (set by the Pulse theme), then Home Assistant's
+       own variable, then the value this card always used. Without the Pulse theme nothing changes. */
+    --sp-accent: var(--pulse-accent, var(--primary-color));
+    --sp-on-accent: var(--pulse-on-accent, var(--text-primary-color, #fff));
+    --sp-warn: var(--pulse-warn, var(--orange-color, #ff9800));
+    --sp-bad: var(--pulse-bad, var(--red-color, #f44336));
+    --sp-neutral-bg: var(--pulse-surface-neutral, color-mix(in srgb, var(--primary-text-color) 6%, transparent));
+    --sp-neutral-bg-hover: var(--pulse-surface-neutral-hover, color-mix(in srgb, var(--primary-text-color) 10%, transparent));
+    --sp-radius: var(--pulse-radius, var(--ha-card-border-radius, 12px));
+    --sp-control-radius: var(--pulse-control-radius, var(--ha-card-features-border-radius, var(--feature-border-radius, 12px)));
+    --sp-chip-height: var(--pulse-chip-height, 32px);
+    --sp-row-height: var(--pulse-row-height, 56px);
     display: block;
     height: 100%;
   }
@@ -181,9 +184,9 @@ export const cardStyles = css`
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    height: 32px;
+    height: var(--sp-chip-height);
     padding: 0 12px;
-    border-radius: 16px;
+    border-radius: calc(var(--sp-chip-height) / 2);
     background: var(--sp-neutral-bg);
     color: var(--primary-text-color);
     font-size: 13px;
@@ -490,7 +493,7 @@ export const dialogStyles = css`
     transition: background-color 150ms ease;
   }
   .btn:hover { background: color-mix(in srgb, var(--sp-accent) 10%, transparent); }
-  .btn.filled { background: var(--sp-accent); color: var(--text-primary-color, #fff); }
+  .btn.filled { background: var(--sp-accent); color: var(--sp-on-accent); }
   .btn.filled:hover { background: color-mix(in srgb, var(--sp-accent) 88%, black); }
   .btn.danger { color: var(--sp-bad); }
   .btn.danger:hover, .btn.danger.armed { background: color-mix(in srgb, var(--sp-bad) 12%, transparent); }

@@ -47,7 +47,7 @@
   class HaCard extends HTMLElement {
     constructor() { super(); this.attachShadow({ mode: "open" }).innerHTML = `<style>:host{display:block;background:var(--ha-card-background,var(--card-background-color));
       border-radius:var(--ha-card-border-radius,12px);border:var(--ha-card-border-width,1px) solid var(--ha-card-border-color,var(--divider-color));
-      color:var(--primary-text-color);box-sizing:border-box}</style><slot></slot>`; }
+      color:var(--primary-text-color);box-sizing:border-box;box-shadow:var(--ha-card-box-shadow,none);-webkit-backdrop-filter:var(--ha-card-backdrop-filter,none);backdrop-filter:var(--ha-card-backdrop-filter,none)}</style><slot></slot>`; }
   }
   customElements.define("ha-card", HaCard);
 
@@ -101,6 +101,17 @@
   customElements.define("ha-selector", class extends HTMLElement {});
 </script>
 <script type="module">
+
+  // ?theme=pulse|glass|tonal applies a Pulse theme from the sibling pulse-theme repo, the way HA does.
+  {
+    const q = new URLSearchParams(location.search);
+    if (q.get("theme")) {
+      const { applyPulseTheme } = await import("../../pulse-theme/test/apply-theme.mjs");
+      await applyPulseTheme(q.get("theme"), q.has("dark"), document.body);
+      document.body.style.background = "var(--lovelace-background, var(--primary-background-color))";
+      document.body.style.fontFamily = "var(--ha-font-family-body)";
+    }
+  }
   const params = new URLSearchParams(location.search);
   if (params.has("dark")) document.body.classList.add("dark");
   const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };

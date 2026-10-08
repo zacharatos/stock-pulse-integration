@@ -17,7 +17,7 @@ Screenshots are from Home Assistant 2026.2 (sections view, built-in light and da
 | --- | --- | --- | --- |
 | ![Sheet](docs/sheet-dark.png) | ![Phone light](docs/phone-sheet-light.png) | ![Phone dark](docs/phone-sheet-dark.png) | ![Greek](docs/greek.png) |
 
-**Themes:** the card takes every colour from your Home Assistant theme, so it follows light, dark and auto mode and any custom theme without settings. Colour is used only for items that need attention.
+**Themes:** the card takes every colour from your Home Assistant theme, so it follows light, dark and auto mode and any custom theme without settings. Colour is used only for items that need attention. With the [Pulse theme](https://github.com/zacharatos/pulse-theme), it reads the theme's shared `--pulse-*` tokens and sits with the other Pulse cards as one family.
 
 ## Why an integration and not just a card
 

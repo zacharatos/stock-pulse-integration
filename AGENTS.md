@@ -48,7 +48,7 @@ npm run typecheck && npm test && npm run build
 pytest -q   # after bash scripts/install-test-deps.sh (it adds the frontend package HA needs)
 ```
 
-Rebuild after any change in `src/` and leave the bundle modified (CI fails if it is stale). For anything visual, serve the repo and open `test/harness.html` (`?dark=1`, `?lang=el`, `?missing=1`); check light, dark, Greek, a phone width, and the console.
+Rebuild after any change in `src/` and leave the bundle modified (CI fails if it is stale). For anything visual, serve the repo and open `test/harness.html` (`?dark=1`, `?lang=el`, `?missing=1`; `?theme=pulse|glass|tonal` applies a [Pulse theme](https://github.com/zacharatos/pulse-theme) (serve the parent `Projects` folder instead and open `/<repo>/test/harness.html`, because the theme is loaded from the sibling `pulse-theme` repo)); check light, dark, Greek, a phone width, and the console.
 
 ### Checking in a real Home Assistant
 
@@ -62,6 +62,7 @@ Two things that only showed up there, and why the code looks the way it does:
 ## How we work
 
 - **Stay native.** `ha-card`, `ha-icon`, `ha-form` selectors, HA theme variables, HA's toast (`hass-notification`). Colour only for what needs attention.
+- **Pulse tokens first.** Every `--sp-*` variable reads the shared `--pulse-*` token first, then the Home Assistant variable, then the value the card always used: `--sp-accent: var(--pulse-accent, var(--primary-color));`. Keep that last fallback unchanged, so the card looks the same without the Pulse theme; prove it with harness screenshots before and after. Category colours keep reading HA's palette. The token contract is in the Pulse theme's README.
 - **Zero config first.** `type: custom:stock-pulse-card` must be useful on its own.
 - **Opt-in beats opt-out.** New behaviour that changes what users see or what lands on their shopping list is off by default or configurable.
 - **Never surprise the shopping list.** Remove only entries Stock Pulse added and that are still open; never touch hand-typed entries except to restock from them when ticked; never restock twice from one entry (`sync.seen`).
