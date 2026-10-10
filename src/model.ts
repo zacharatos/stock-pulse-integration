@@ -45,6 +45,27 @@ export function fmtQty(n: number): string {
   return String(Number(n.toFixed(2)));
 }
 
+/**
+ * How much to buy, the same rule as the integration's `buy_amount` (logic.py): an explicit buy
+ * amount wins, otherwise just enough to get back above the threshold, and at least one.
+ */
+export function buyAmount(item: Item): number {
+  if (item.restock_quantity) return item.restock_quantity;
+  if (item.min_quantity == null) return 1;
+  return Math.max(1, Math.floor(item.min_quantity - item.quantity) + 1);
+}
+
+/**
+ * What the "Bought" button adds: the amount on the shopping-list entry when there is one (the user
+ * may have changed it there, and that is what gets restocked when it's ticked off), else buyAmount.
+ * Null when buying isn't the obvious next step (stocked, not low, not on the list).
+ */
+export function boughtAmount(item: Item, s: ItemStatus): number | null {
+  if (item.shopping?.amount && item.shopping.amount > 0) return item.shopping.amount;
+  if (s.out || s.low) return buyAmount(item);
+  return null;
+}
+
 /** How much one tap on +/- changes, by unit. */
 export function stepFor(unit: string): number {
   switch (unit) {

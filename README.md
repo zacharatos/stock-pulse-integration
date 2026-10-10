@@ -6,6 +6,7 @@ A household inventory for Home Assistant, with a shopping list that fills itself
 - Give an item a **threshold** and it goes on your shopping list by itself when stock drops to it.
 - **Tick it off the shopping list** when you buy it and the bought amount is added back to the inventory.
 - A card that looks at home next to the built-in cards: search and quick add, filter chips, grouping, +/- steppers, and an edit sheet. English and Greek.
+- **Bought it on the way home?** One tap on **Bought** in an item's sheet adds the amount you'd buy (or the amount on its shopping-list entry) and takes it off the list.
 
 Screenshots are from Home Assistant 2026.2 (sections view, built-in light and dark themes).
 
@@ -17,7 +18,7 @@ Screenshots are from Home Assistant 2026.2 (sections view, built-in light and da
 | --- | --- | --- | --- |
 | ![Sheet](docs/sheet-dark.png) | ![Phone light](docs/phone-sheet-light.png) | ![Phone dark](docs/phone-sheet-dark.png) | ![Greek](docs/greek.png) |
 
-**Themes:** the card takes every colour from your Home Assistant theme, so it follows light, dark and auto mode and any custom theme without settings. Colour is used only for items that need attention. With the [Pulse theme](https://github.com/zacharatos/pulse-theme), it reads the theme's shared `--pulse-*` tokens and sits with the other Pulse cards as one family.
+**Themes:** the card takes every colour from your Home Assistant theme, so it follows light, dark and auto mode and any custom theme without settings. Colour is used only for items that need attention, and only on the item's icon and the words that say why (*Low*, *Expires tomorrow*); everything else stays neutral. When nothing needs attention, the header says *All stocked up*. With the [Pulse theme](https://github.com/zacharatos/pulse-theme), it reads the theme's shared `--pulse-*` tokens and sits with the other Pulse cards as one family.
 
 ## Why an integration and not just a card
 
@@ -89,6 +90,8 @@ locations: [freezer]
 group_by: none
 sort: expiry
 ```
+
+Tap a filter chip again to go back to everything. In an item's sheet, **Bought** appears when the item is low, out, or on the shopping list: it adds the amount on the list entry (or the buy amount) in one go, and the entry disappears from the list, exactly as if you had ticked it off.
 
 Built-in units, categories and locations are translated; you can also type your own (a "Garage" location, a "Ferments" category, a "carton" unit).
 

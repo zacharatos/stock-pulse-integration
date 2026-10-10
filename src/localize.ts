@@ -14,6 +14,9 @@ const en: Dict = {
   delete_confirm: "Tap again to delete",
   add_to_list: "Add to shopping list",
   remove_from_list: "Remove from list",
+  bought: "Bought",
+  bought_aria: "Bought: add {amount} to the stock",
+  restocked: "{name}: +{amount}",
   increase: "Add {step}",
   decrease: "Use {step}",
 
@@ -27,6 +30,7 @@ const en: Dict = {
   n_low: "{n} low",
   n_expiring: "{n} expiring",
   n_on_list: "{n} on the list",
+  all_stocked: "All stocked up",
 
   empty: "Nothing here yet",
   empty_hint: "Add what you keep at home and the card keeps count.",
@@ -134,6 +138,9 @@ const el: Dict = {
   delete_confirm: "Πατήστε ξανά για διαγραφή",
   add_to_list: "Στη λίστα αγορών",
   remove_from_list: "Αφαίρεση από τη λίστα",
+  bought: "Αγοράστηκε",
+  bought_aria: "Αγοράστηκε: πρόσθεσε {amount} στο απόθεμα",
+  restocked: "{name}: +{amount}",
   increase: "Πρόσθεσε {step}",
   decrease: "Αφαίρεσε {step}",
 
@@ -147,6 +154,7 @@ const el: Dict = {
   n_low: "{n} τελειώνουν",
   n_expiring: "{n} λήγουν",
   n_on_list: "{n} στη λίστα",
+  all_stocked: "Τίποτα δεν λείπει",
 
   empty: "Δεν υπάρχει τίποτα ακόμη",
   empty_hint: "Προσθέστε ό,τι έχετε στο σπίτι και η κάρτα κρατά λογαριασμό.",

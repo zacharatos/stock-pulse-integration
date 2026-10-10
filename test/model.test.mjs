@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   applyFilter,
+  boughtAmount,
+  buyAmount,
   daysBetween,
   diffFields,
   fmtQty,
@@ -87,6 +89,26 @@ test("numbers and steps", () => {
   assert.equal(stepFor("g"), 100);
   assert.equal(stepFor("kg"), 0.5);
   assert.equal(stepFor("roll"), 1);
+});
+
+test("buy amounts match the integration's rule", () => {
+  // Same cases as buy_amount in logic.py: explicit amount wins, else just above the threshold, at least one.
+  assert.equal(buyAmount(item("x", "x", { quantity: 2, min_quantity: 2, restock_quantity: 9 })), 9);
+  assert.equal(buyAmount(item("x", "x", { quantity: 2, min_quantity: 2 })), 1);
+  assert.equal(buyAmount(item("x", "x", { quantity: 0, min_quantity: 3 })), 4);
+  assert.equal(buyAmount(item("x", "x", { quantity: 0.5, min_quantity: 1 })), 1);
+  assert.equal(buyAmount(item("x", "x", { quantity: 0 })), 1);
+});
+
+test("the Bought button offers the list's amount, else what's needed, else nothing", () => {
+  // On the list: the entry's amount (it may have been changed there).
+  assert.equal(boughtAmount(items[3], statuses.get("d")), 1);
+  const edited = item("p", "Paper", { quantity: 2, min_quantity: 2, restock_quantity: 9, shopping: { uid: "u", summary: "Paper (12)", amount: 12, auto: true } });
+  assert.equal(boughtAmount(edited, itemStatus(edited, TODAY, 3)), 12);
+  // Low but not on the list: the buy amount.
+  assert.equal(boughtAmount(items[0], statuses.get("a")), 1);
+  // Stocked and not on the list: no button.
+  assert.equal(boughtAmount(items[4], statuses.get("e")), null);
 });
 
 test("diff only sends what changed", () => {

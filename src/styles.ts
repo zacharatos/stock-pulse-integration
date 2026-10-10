@@ -11,15 +11,29 @@ export const cardStyles = css`
     --sp-bad: var(--pulse-bad, var(--red-color, #f44336));
     --sp-neutral-bg: var(--pulse-surface-neutral, color-mix(in srgb, var(--primary-text-color) 6%, transparent));
     --sp-neutral-bg-hover: var(--pulse-surface-neutral-hover, color-mix(in srgb, var(--primary-text-color) 10%, transparent));
+    /* The selected chip: a stronger neutral step, like Area Pulse's active action and Home Pulse's current mode. */
+    --sp-neutral-bg-strong: var(--pulse-surface-neutral-strong, color-mix(in srgb, var(--primary-text-color) 14%, transparent));
     --sp-radius: var(--pulse-radius, var(--ha-card-border-radius, 12px));
     --sp-control-radius: var(--pulse-control-radius, var(--ha-card-features-border-radius, var(--feature-border-radius, 12px)));
-    --sp-chip-height: var(--pulse-chip-height, 32px);
+    --sp-chip-height: var(--pulse-chip-height, 30px);
     --sp-row-height: var(--pulse-row-height, 56px);
+    --sp-gap: var(--pulse-gap, 12px);
+    --sp-pad: var(--pulse-pad, 12px);
+    /* Motion: the theme's rhythm, else the durations the card always used. */
+    --sp-motion-fast: var(--pulse-motion-fast, 120ms);
+    --sp-motion-normal: var(--pulse-motion-normal, 150ms);
+    --sp-ease: var(--pulse-ease, ease);
     display: block;
     height: 100%;
   }
   :host([compact]) {
     --sp-row-height: 44px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :host {
+      --sp-motion-fast: 0ms;
+      --sp-motion-normal: 0ms;
+    }
   }
 
   ha-card {
@@ -31,8 +45,8 @@ export const cardStyles = css`
   .content {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 12px;
+    gap: var(--sp-gap);
+    padding: var(--sp-pad);
     min-height: 0;
     flex: 1;
   }
@@ -95,6 +109,7 @@ export const cardStyles = css`
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  /* Like Area Pulse's readings: coloured only when something is out of range. */
   .secondary .warn { color: var(--sp-warn); }
   .secondary .bad { color: var(--sp-bad); }
   .dot { margin: 0 4px; opacity: 0.6; }
@@ -108,7 +123,7 @@ export const cardStyles = css`
     justify-content: center;
     background: var(--sp-neutral-bg);
     color: var(--primary-text-color);
-    transition: background-color 150ms ease, transform 120ms ease;
+    transition: background-color var(--sp-motion-normal) var(--sp-ease), transform var(--sp-motion-fast) var(--sp-ease);
     --mdc-icon-size: 22px;
   }
   .round:hover { background: var(--sp-neutral-bg-hover); }
@@ -162,8 +177,8 @@ export const cardStyles = css`
     gap: 8px;
     overflow-x: auto;
     scrollbar-width: none;
-    margin: 0 -12px;
-    padding: 0 12px;
+    margin: 0 calc(-1 * var(--sp-pad));
+    padding: 0 var(--sp-pad);
   }
   .chips::-webkit-scrollbar { display: none; }
   /* Scrollers fade at the edge that has more, so a cut-off chip or row reads as "scroll", not as a bug. */
@@ -188,24 +203,27 @@ export const cardStyles = css`
     padding: 0 12px;
     border-radius: calc(var(--sp-chip-height) / 2);
     background: var(--sp-neutral-bg);
-    color: var(--primary-text-color);
-    font-size: 13px;
+    color: var(--secondary-text-color);
+    font-size: 12px;
     font-weight: 500;
     white-space: nowrap;
-    transition: background-color 150ms ease, color 150ms ease;
+    transition: background-color var(--sp-motion-normal) var(--sp-ease), color var(--sp-motion-normal) var(--sp-ease),
+      transform var(--sp-motion-fast) var(--sp-ease);
     --mdc-icon-size: 16px;
   }
   .chip:hover { background: var(--sp-neutral-bg-hover); }
-  .chip.selected {
-    background: color-mix(in srgb, var(--sp-accent) 18%, transparent);
-    color: var(--sp-accent);
+  .chip:active { transform: scale(0.96); }
+  /* Selected: no accent wash, just the family's stronger neutral step and full-strength text. */
+  .chip.selected,
+  .chip.selected:hover {
+    background: var(--sp-neutral-bg-strong);
+    color: var(--primary-text-color);
   }
   .chip .count {
     font-variant-numeric: tabular-nums;
-    color: var(--secondary-text-color);
     font-weight: 400;
+    opacity: 0.8;
   }
-  .chip.selected .count { color: inherit; }
 
   /* List */
   .list {
@@ -275,8 +293,9 @@ export const cardStyles = css`
     --mdc-icon-size: 20px;
   }
   :host([compact]) .ricon { width: 30px; height: 30px; --mdc-icon-size: 18px; }
-  .ricon.warn { background: color-mix(in srgb, var(--sp-warn) 16%, transparent); color: var(--sp-warn); }
-  .ricon.bad { background: color-mix(in srgb, var(--sp-bad) 16%, transparent); color: var(--sp-bad); }
+  /* Same rule as Area Pulse's chips: the disc stays neutral, only the icon carries the meaning. */
+  .ricon.warn { color: var(--sp-warn); }
+  .ricon.bad { color: var(--sp-bad); }
   .text {
     flex: 1;
     min-width: 0;
@@ -335,7 +354,8 @@ export const cardStyles = css`
     align-items: center;
     justify-content: center;
     color: var(--secondary-text-color);
-    transition: background-color 150ms ease, color 150ms ease, transform 120ms ease;
+    transition: background-color var(--sp-motion-normal) var(--sp-ease), color var(--sp-motion-normal) var(--sp-ease),
+      transform var(--sp-motion-fast) var(--sp-ease);
     --mdc-icon-size: 20px;
   }
   .step:hover { background: var(--sp-neutral-bg); color: var(--primary-text-color); }
@@ -362,13 +382,14 @@ export const cardStyles = css`
     min-height: var(--sp-row-height);
     padding: 4px;
     border-radius: var(--sp-control-radius);
-    color: var(--sp-accent);
+    color: var(--primary-text-color);
     font-size: 14px;
     font-weight: 500;
     text-align: left;
   }
   .add-row:hover { background: var(--sp-neutral-bg); }
-  .add-row .ricon { background: color-mix(in srgb, var(--sp-accent) 14%, transparent); color: var(--sp-accent); }
+  /* An action, like Home Pulse's fixes: neutral, with the accent on the icon. */
+  .add-row .ricon { color: var(--sp-accent); }
 
   .empty {
     display: flex;
@@ -408,7 +429,7 @@ export const dialogStyles = css`
     -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
   }
-  dialog.sp-dialog[open] .surface { animation: sp-pop 200ms cubic-bezier(0.2, 0.9, 0.3, 1.1); }
+  dialog.sp-dialog[open] .surface { animation: sp-pop var(--pulse-motion-normal, 200ms) cubic-bezier(0.2, 0.9, 0.3, 1.1); }
   @keyframes sp-pop {
     from { opacity: 0; transform: translateY(12px) scale(0.98); }
   }
@@ -419,6 +440,9 @@ export const dialogStyles = css`
     box-sizing: border-box;
     border-radius: var(--ha-dialog-border-radius, 28px);
     background: var(--ha-dialog-surface-background, var(--mdc-theme-surface, var(--card-background-color, #fff)));
+    /* Frosted like HA's own dialogs when the theme asks for it (Pulse Glass); nothing otherwise. */
+    -webkit-backdrop-filter: var(--ha-dialog-surface-backdrop-filter, none);
+    backdrop-filter: var(--ha-dialog-surface-backdrop-filter, none);
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
     overflow: hidden;
   }
@@ -448,23 +472,50 @@ export const dialogStyles = css`
   .d-status {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 8px;
-    margin-bottom: 12px;
+    margin-bottom: 16px;
   }
+  /* Family chips: neutral fill and text, the icon carries the colour. */
   .pill {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    height: 28px;
-    padding: 0 10px;
-    border-radius: 14px;
+    height: var(--sp-chip-height);
+    padding: 0 12px 0 9px;
+    box-sizing: border-box;
+    border-radius: calc(var(--sp-chip-height) / 2);
     background: var(--sp-neutral-bg);
     font-size: 12px;
-    color: var(--secondary-text-color);
+    font-weight: 500;
+    color: var(--primary-text-color);
     --mdc-icon-size: 16px;
   }
-  .pill.warn { color: var(--sp-warn); background: color-mix(in srgb, var(--sp-warn) 14%, transparent); }
-  .pill.bad { color: var(--sp-bad); background: color-mix(in srgb, var(--sp-bad) 14%, transparent); }
+  .pill ha-icon { color: var(--secondary-text-color); }
+  .pill.warn ha-icon { color: var(--sp-warn); }
+  .pill.bad ha-icon { color: var(--sp-bad); }
+  /* "Bought": the one-tap restock. Neutral like the pills, accent icon, pushed to the end of the row. */
+  .bought {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 36px;
+    padding: 0 14px 0 11px;
+    border-radius: var(--sp-control-radius);
+    background: var(--sp-neutral-bg);
+    color: var(--primary-text-color);
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: background-color var(--sp-motion-normal) var(--sp-ease), transform var(--sp-motion-fast) var(--sp-ease);
+    --mdc-icon-size: 18px;
+  }
+  .bought ha-icon { color: var(--sp-accent); }
+  .bought:hover { background: var(--sp-neutral-bg-hover); }
+  .bought:active { transform: scale(0.96); }
+  .bought .amount { color: var(--secondary-text-color); font-variant-numeric: tabular-nums; }
+  .bought[disabled] { opacity: 0.5; cursor: default; transform: none; }
   .d-error {
     margin-top: 8px;
     color: var(--error-color, var(--sp-bad));
@@ -490,7 +541,7 @@ export const dialogStyles = css`
     font-weight: 500;
     color: var(--sp-accent);
     --mdc-icon-size: 18px;
-    transition: background-color 150ms ease;
+    transition: background-color var(--sp-motion-normal) var(--sp-ease);
   }
   .btn:hover { background: color-mix(in srgb, var(--sp-accent) 10%, transparent); }
   .btn.filled { background: var(--sp-accent); color: var(--sp-on-accent); }

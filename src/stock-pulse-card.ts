@@ -7,6 +7,7 @@ import type { Item, ItemFields, Snapshot, StockPulseCardConfig } from "./types";
 import type { HomeAssistant } from "./types";
 import {
   applyFilter,
+  boughtAmount,
   diffFields,
   fmtQty,
   groupItems,
@@ -29,7 +30,7 @@ import { cardStyles, dialogStyles } from "./styles";
 import { defineElement } from "./register";
 import "./editor";
 
-export const VERSION = "0.1.0";
+export const VERSION = "1.2.0";
 const WS = "stock_pulse";
 const GROUP_BY = ["category", "location", "none"];
 const SORT = ["name", "quantity", "expiry"];
@@ -328,6 +329,8 @@ export class StockPulseCard extends LitElement {
     const parts: TemplateResult[] = [html`<span>${this._t("n_items", { n: view.counts.items })}</span>`];
     if (view.counts.low) parts.push(html`<span class="warn">${this._t("n_low", { n: view.counts.low })}</span>`);
     if (view.counts.expiring) parts.push(html`<span class="warn">${this._t("n_expiring", { n: view.counts.expiring })}</span>`);
+    // Nothing to act on: say so, so a quiet card reads as "checked, fine" rather than "no data".
+    if (view.counts.items && !view.counts.low && !view.counts.expiring) parts.push(html`<span>${this._t("all_stocked")}</span>`);
     return html`${parts.map((p, i) => html`${i ? html`<span class="dot">·</span>` : nothing}${p}`)}`;
   }
 
@@ -396,7 +399,7 @@ export class StockPulseCard extends LitElement {
             <button
               class=${classMap({ chip: true, selected: same(c.filter, this._filter) })}
               aria-pressed=${same(c.filter, this._filter) ? "true" : "false"}
-              @click=${() => (this._filter = c.filter)}
+              @click=${() => (this._filter = same(c.filter, this._filter) ? { kind: "all" } : c.filter)}
             >
               ${c.icon ? html`<ha-icon .icon=${c.icon}></ha-icon>` : nothing}${c.label}
               ${c.count != null ? html`<span class="count">${c.count}</span>` : nothing}
@@ -619,6 +622,8 @@ export class StockPulseCard extends LitElement {
     const icon = d.data.icon || (item ? itemIcon(item) : "mdi:package-variant-plus");
     const canShop = !!snap.settings.shopping_list && d.mode === "edit" && !!item;
     const expiry = item && s ? this._expiryText(s, item) : undefined;
+    // Only for items already saved; a new item has nothing to restock yet.
+    const bought = item && s && d.mode === "edit" ? boughtAmount(item, s) : null;
 
     return html`
       <dialog class="sp-dialog" aria-label=${title} @close=${this._onDialogClosed} @click=${this._onBackdrop}>
@@ -634,15 +639,28 @@ export class StockPulseCard extends LitElement {
             ${item && s && (s.out || s.low || s.onList || s.expired || s.soon)
               ? html`<div class="d-status">
                   ${s.out
-                    ? html`<span class="pill bad">${this._t("out_of_stock")}</span>`
+                    ? html`<span class="pill bad"><ha-icon icon="mdi:alert-circle-outline"></ha-icon>${this._t("out_of_stock")}</span>`
                     : s.low
-                      ? html`<span class="pill warn">${this._t("low")}</span>`
+                      ? html`<span class="pill warn"><ha-icon icon="mdi:alert-circle-outline"></ha-icon>${this._t("low")}</span>`
                       : nothing}
                   ${(s.expired || s.soon) && expiry
-                    ? html`<span class=${classMap({ pill: true, bad: s.expired, warn: s.soon })}>${expiry}</span>`
+                    ? html`<span class=${classMap({ pill: true, bad: s.expired, warn: s.soon })}
+                        ><ha-icon icon="mdi:clock-alert-outline"></ha-icon>${expiry}</span
+                      >`
                     : nothing}
                   ${s.onList
                     ? html`<span class="pill"><ha-icon icon="mdi:cart-outline"></ha-icon>${this._t("on_list")}</span>`
+                    : nothing}
+                  ${bought != null
+                    ? html`<button
+                        class="bought"
+                        aria-label=${this._t("bought_aria", { amount: this._amountText(item, bought) })}
+                        ?disabled=${d.busy}
+                        @click=${() => this._onBought(item, bought)}
+                      >
+                        <ha-icon icon="mdi:cart-check"></ha-icon>${this._t("bought")}
+                        <span class="amount">+${this._amountText(item, bought)}</span>
+                      </button>`
                     : nothing}
                 </div>`
               : nothing}
@@ -759,6 +777,33 @@ export class StockPulseCard extends LitElement {
     try {
       await this._call({ type: `${WS}/item/shop`, item_id: item.id, on: !item.shopping });
       if (this._dialog) this._dialog = { ...this._dialog, busy: false };
+    } catch (err) {
+      if (this._dialog) this._dialog = { ...this._dialog, busy: false, error: errorMessage(err) };
+    }
+  }
+
+  /** "+9 rolls", "+2" for pieces, as the rows show quantities. */
+  private _amountText(item: Item, amount: number): string {
+    const unit = item.unit === "pcs" ? "" : labelFor(this.hass, "unit", item.unit, amount);
+    return unit ? `${fmtQty(amount)} ${unit}` : fmtQty(amount);
+  }
+
+  /**
+   * Bought without ticking the list (on the way home): add the amount in one go. The integration then
+   * clears the entry it added; an entry put on the list by hand from this sheet is removed here too,
+   * so "bought" never leaves the item on the list.
+   */
+  private async _onBought(item: Item, amount: number): Promise<void> {
+    const d = this._dialog;
+    if (!d || d.busy) return;
+    this._dialog = { ...d, busy: true, error: undefined };
+    try {
+      await this._call({ type: `${WS}/item/adjust`, item_id: item.id, amount });
+      if (item.shopping && !item.shopping.auto) {
+        await this._call({ type: `${WS}/item/shop`, item_id: item.id, on: false });
+      }
+      toast(this, this._t("restocked", { name: item.name, amount: this._amountText(item, amount) }));
+      this._closeDialog();
     } catch (err) {
       if (this._dialog) this._dialog = { ...this._dialog, busy: false, error: errorMessage(err) };
     }

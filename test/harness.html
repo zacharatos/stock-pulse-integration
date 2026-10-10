@@ -137,6 +137,7 @@
     item("Peas", { quantity: 2, unit: "bag", category: "frozen", location: "freezer", expiry: day(200) }),
     item("Chicken souvlaki", { quantity: 6, unit: "pcs", category: "frozen", location: "freezer", expiry: day(3) }),
     item("Vanilla ice cream", { quantity: 1, unit: "box", category: "frozen", location: "freezer" }),
+    item("Light bulbs", { quantity: 4, unit: "pcs", category: "household", location: "other", min_quantity: 1 }),
   ];
   const snap = () => ({
     entry_id: "e1", title: "Home", version: "0.1.0", items: [...items].sort((a, b) => a.name.localeCompare(b.name)),
@@ -178,6 +179,7 @@
     ["Default (grouped by category)", { type: "custom:stock-pulse-card" }],
     ["Freezer only, sorted by date", { type: "custom:stock-pulse-card", title: "Freezer", icon: "mdi:snowflake", locations: ["freezer"], group_by: "none", sort: "expiry" }],
     ["Compact, by location, max height", { type: "custom:stock-pulse-card", compact: true, group_by: "location", show_search: false, max_height: "420px" }],
+    ["Nothing to act on", { type: "custom:stock-pulse-card", title: "Household", icon: "mdi:home-variant-outline", categories: ["household"], group_by: "none", show_search: false }],
   ];
   const grid = document.getElementById("grid");
   for (const [cap, config] of configs) {
@@ -188,6 +190,11 @@
     card.hass = hass;
     wrap.appendChild(card);
     grid.appendChild(wrap);
+  }
+  // ?sheet=<item name> opens that item's edit sheet on the first card (for screenshots).
+  if (params.get("sheet")) {
+    const card = grid.querySelector("stock-pulse-card");
+    setTimeout(() => card._openEdit(items.find((i) => i.name === params.get("sheet"))), 200);
   }
   if (params.has("missing")) {
     const wrap = document.createElement("div");
