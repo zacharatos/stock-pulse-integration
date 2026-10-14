@@ -34,6 +34,7 @@ def async_register_websocket(hass: HomeAssistant) -> None:
         ws_adjust,
         ws_shop,
         ws_sync,
+        ws_lookup,
     ):
         websocket_api.async_register_command(hass, command)
 
@@ -150,6 +151,16 @@ async def ws_shop(hass: HomeAssistant, manager: StockPulseManager, msg: dict[str
     if msg["on"]:
         return await manager.async_add_to_shopping_list(msg["item_id"])
     return await manager.async_remove_from_shopping_list(msg["item_id"])
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): f"{DOMAIN}/item/lookup", INVENTORY: str, vol.Required("barcode"): str}
+)
+@websocket_api.async_response
+@_guarded
+async def ws_lookup(hass: HomeAssistant, manager: StockPulseManager, msg: dict[str, Any]) -> Any:
+    """A scanned barcode: the item that has it, or a product to prefill the add sheet with."""
+    return await manager.async_lookup(msg["barcode"])
 
 
 @websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/sync", INVENTORY: str})

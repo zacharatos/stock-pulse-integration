@@ -20,6 +20,28 @@ export interface HomeAssistant {
   themes?: { darkMode?: boolean };
   connection: HassConnection;
   callWS: <T>(msg: Record<string, unknown>) => Promise<T>;
+  /** In the companion app: the bus to the app (its native barcode scanner, among others). */
+  auth?: { external?: ExternalBus };
+}
+
+/** A command the companion app sends to the frontend over the external bus. */
+export interface ExternalCommand {
+  id?: number;
+  type: "command";
+  command: string;
+  payload?: Record<string, unknown>;
+}
+
+/**
+ * The companion app's external bus as the HA frontend exposes it on hass.auth.external. Only the parts
+ * the card uses. The command handler is a single slot the frontend fills; the card chains onto it while
+ * its scan is open and puts it back afterwards.
+ */
+export interface ExternalBus {
+  config?: { hasBarCodeScanner?: number | boolean };
+  fireMessage(msg: Record<string, unknown>): void;
+  addCommandHandler(handler: ((msg: ExternalCommand) => boolean) | undefined): void;
+  _commandHandler?: (msg: ExternalCommand) => boolean;
 }
 
 /** One item as stored by the integration. */
@@ -39,6 +61,12 @@ export interface Item {
   auto_shop: boolean;
   notes: string | null;
   icon: string | null;
+  /** EAN/UPC digits; scanning one of them finds this item. Missing on items stored before 1.3.0. */
+  barcodes?: string[];
+  /** ISO date the pack in use was opened. Missing on items stored before 1.3.0. */
+  opened_on?: string | null;
+  /** Days it keeps once opened; with opened_on it can bring the date forward. */
+  days_after_opening?: number | null;
   created: string;
   updated: string;
   shopping: { uid: string | null; summary: string; amount: number; auto: boolean } | null;
@@ -59,6 +87,9 @@ export type ItemFields = Partial<
     | "auto_shop"
     | "notes"
     | "icon"
+    | "barcodes"
+    | "opened_on"
+    | "days_after_opening"
   >
 >;
 
@@ -77,6 +108,18 @@ export interface Snapshot {
   units: string[];
   locations: string[];
   categories: string[];
+}
+
+/** What stock_pulse/item/lookup answers for a scanned barcode. */
+export interface LookupResult {
+  barcode: string;
+  /** The item that already has this barcode. */
+  item_id: string | null;
+  /** Fields to prefill a new item with, from the open product databases. */
+  product: { name: string; category: string | null; notes: string | null; image: string | null } | null;
+  source: string | null;
+  /** Set when the databases couldn't be reached. */
+  error: string | null;
 }
 
 export type GroupBy = "category" | "location" | "none";
@@ -101,6 +144,8 @@ export interface StockPulseCardConfig {
   show_search?: boolean;
   /** Default true. */
   show_filters?: boolean;
+  /** Scan button in the header, where the browser can scan (HTTPS). Default true. */
+  show_scan?: boolean;
   /** Default false. */
   hide_out_of_stock?: boolean;
   /** Tighter rows. Default false. */

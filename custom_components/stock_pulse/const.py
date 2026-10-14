@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Final
 
 DOMAIN: Final = "stock_pulse"
-VERSION: Final = "1.2.0"
+VERSION: Final = "1.3.0"
 
 STORAGE_VERSION: Final = 1
 
@@ -47,6 +47,11 @@ ATTR_RESTOCK_QUANTITY: Final = "restock_quantity"
 ATTR_AUTO_SHOP: Final = "auto_shop"
 ATTR_NOTES: Final = "notes"
 ATTR_ICON: Final = "icon"
+ATTR_BARCODES: Final = "barcodes"
+ATTR_OPENED_ON: Final = "opened_on"
+ATTR_DAYS_AFTER_OPENING: Final = "days_after_opening"
+# Actions only: one barcode to add to an item's list.
+ATTR_BARCODE: Final = "barcode"
 ATTR_AMOUNT: Final = "amount"
 ATTR_ITEM: Final = "item"
 ATTR_INVENTORY: Final = "inventory"
@@ -64,6 +69,9 @@ EDITABLE_FIELDS: Final = (
     ATTR_AUTO_SHOP,
     ATTR_NOTES,
     ATTR_ICON,
+    ATTR_BARCODES,
+    ATTR_OPENED_ON,
+    ATTR_DAYS_AFTER_OPENING,
 )
 
 # Events fired on the bus, for automations.
@@ -76,3 +84,10 @@ SIGNAL_UPDATED: Final = f"{DOMAIN}_updated_{{}}"
 
 FRONTEND_URL_BASE: Final = f"/{DOMAIN}_frontend"
 CARD_FILENAME: Final = "stock-pulse-card.js"
+
+# Product lookup by barcode (Open Food Facts and its sister databases). No key needed.
+MAX_BARCODES: Final = 10
+LOOKUP_TIMEOUT: Final = 8
+LOOKUP_USER_AGENT: Final = (
+    f"StockPulse/{VERSION} (Home Assistant integration; https://github.com/zacharatos/stock-pulse-integration)"
+)

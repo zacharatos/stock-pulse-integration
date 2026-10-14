@@ -1,0 +1,145 @@
+name: 🛠️ Work item (maintainer and AI agents)
+description: A piece of work ready to build, written so an agent can pick it up and Timos can review it. Users, please use the other forms.
+title: "[card|integration] verb + what, e.g. [card] Undo the last quantity change"
+labels: [work-item, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **One issue = one change that ships in one release.** If it needs two releases or touches two unrelated things, split it.
+        Agents: read `AGENTS.md` before you start. **Never commit, tag or push.** End with the hand-off from `AGENTS.md` and link this issue in it.
+        Title scope: `[card]`, `[integration]`, or none when a feature needs both.
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Type
+      options:
+        - Feature
+        - Bug fix
+        - UI enhancement
+        - Refactor (no visible change)
+        - Real-house test
+        - Docs
+        - CI / build / release
+    validations:
+      required: true
+
+  - type: dropdown
+    id: part
+    attributes:
+      label: Part
+      options:
+        - Integration (custom_components/stock_pulse)
+        - Card (stock-pulse-card)
+        - Integration and card
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P1 — broken for someone, or blocks a release
+        - P2 — next release
+        - P3 — someday (an idea worth keeping)
+    validations:
+      required: true
+
+  - type: textarea
+    id: source
+    attributes:
+      label: Source
+      description: Where this came from. Link the post, comment or user issue and quote the key sentence. "Own idea" or "AGENTS.md → Where it can evolve" is fine too.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: The moment in the household's day it helps with. One or two sentences.
+    validations:
+      required: true
+
+  - type: textarea
+    id: now
+    attributes:
+      label: Now
+      description: What happens today. For a bug, the steps, what you see, and what you expected.
+    validations:
+      required: true
+
+  - type: textarea
+    id: wanted
+    attributes:
+      label: Wanted
+      description: How it should behave when it's done. Mention the native HA piece to reuse first, if there is one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Config sketch
+      description: Card YAML, a new option or item field, an action call. New keys, item fields and actions are public API; name them carefully.
+      render: yaml
+
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: Acceptance criteria. Each one something Timos can check in a minute.
+      value: |
+        - [ ] Zero config still works: `type: custom:stock-pulse-card` alone looks and behaves exactly as before
+        - [ ] The shopping list is never surprised: only entries Stock Pulse added are changed, nothing is restocked twice
+        - [ ]
+        - [ ] English and Greek strings
+    validations:
+      required: true
+
+  - type: textarea
+    id: out
+    attributes:
+      label: Not part of this
+
+  - type: textarea
+    id: code
+    attributes:
+      label: Where in the code
+      description: The files that will most likely change (AGENTS.md → Code map), and the rule that matters most here.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks before hand-off
+      description: Agents tick these in the hand-off, not here.
+      options:
+        - label: "`npm run typecheck && npm test && npm run build` pass, and the rebuilt bundle is left modified"
+        - label: "`pytest -q` passes; new rules are pure functions in `logic.py` (or `src/model.ts`) with tests"
+        - label: "Harness checked: light, dark, `?lang=el`, phone width, `?theme=pulse|glass|tonal`"
+        - label: "Version bumped equally in the five places listed in AGENTS.md → Versions"
+
+  - type: textarea
+    id: realha
+    attributes:
+      label: Try in a real Home Assistant
+      description: What only the real house can prove (AGENTS.md → "Things only a real Home Assistant can prove").
+
+  - type: dropdown
+    id: release
+    attributes:
+      label: Release impact
+      options:
+        - Patch
+        - Minor
+        - Major (breaking; needs Timos's say-so)
+        - Not sure yet
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes for whoever builds it

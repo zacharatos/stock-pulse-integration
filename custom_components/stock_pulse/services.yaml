@@ -41,6 +41,17 @@ add_item:
     expiry: &expiry
       selector:
         date:
+    opened_on: &opened_on
+      selector:
+        date:
+    days_after_opening: &days_after_opening
+      example: 10
+      selector:
+        number:
+          min: 1
+          max: 3650
+          step: 1
+          mode: box
     min_quantity: &min_quantity
       example: 2
       selector:
@@ -67,6 +78,14 @@ add_item:
     icon: &icon
       selector:
         icon:
+    barcode: &barcode
+      example: "5201127090423"
+      selector:
+        text:
+    barcodes: &barcodes
+      selector:
+        text:
+          multiple: true
 
 update_item:
   fields:
@@ -84,11 +103,15 @@ update_item:
     category: *category
     location: *location
     expiry: *expiry
+    opened_on: *opened_on
+    days_after_opening: *days_after_opening
     min_quantity: *min_quantity
     restock_quantity: *restock_quantity
     auto_shop: *auto_shop
     notes: *notes
     icon: *icon
+    barcode: *barcode
+    barcodes: *barcodes
 
 remove_item:
   fields:

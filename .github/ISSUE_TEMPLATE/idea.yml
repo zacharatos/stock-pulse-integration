@@ -1,0 +1,43 @@
+name: 💡 An idea
+description: Something Stock Pulse could do for your home.
+title: "What you'd like to do"
+labels: [idea, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The most useful ideas start from a moment in your day (putting the shopping away, standing at the fridge, at the supermarket), not from a feature list. Tell me the moment, and how you would like it to go.
+
+  - type: textarea
+    id: moment
+    attributes:
+      label: The moment
+      description: What you're doing, and what you'd like Stock Pulse to do then.
+      placeholder: "At the supermarket I'd like the list in the order of the aisles."
+    validations:
+      required: true
+
+  - type: textarea
+    id: today
+    attributes:
+      label: How do you do it today?
+      description: Another integration, an automation, a note on the fridge, nothing at all…
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: How it could look (optional)
+      description: YAML, a sketch, a screenshot of something similar.
+
+  - type: dropdown
+    id: weight
+    attributes:
+      label: How much would it help?
+      options:
+        - Nice to have
+        - I'd use it every week
+        - It's what keeps me from using Stock Pulse
+    validations:
+      required: true

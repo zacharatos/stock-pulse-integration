@@ -5,8 +5,12 @@ import type { GroupBy, Item, SortBy, StockPulseCardConfig } from "./types";
 export interface ItemStatus {
   out: boolean;
   low: boolean;
-  /** Days until the best-before date; negative when past; null without a date. */
+  /** Days until the date that counts (best-before, or sooner once opened); negative when past; null without one. */
   days: number | null;
+  /** That date comes from opening the pack ("keeps 10 days once open"), not from the label. */
+  byOpening: boolean;
+  /** Days since the pack was opened, or null when it isn't. */
+  openedDays: number | null;
   expired: boolean;
   soon: boolean;
   onList: boolean;
@@ -25,14 +29,30 @@ export function daysBetween(fromISO: string, toISO: string): number | null {
   return Math.round((b - a) / 86_400_000);
 }
 
+/** Add days to an ISO date. */
+export function addDays(iso: string, days: number): string {
+  const d = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** The date that counts and why: the earlier of best-before and opened + days it keeps (as logic.py). */
+export function effectiveExpiry(item: Item): { date: string | null; byOpening: boolean } {
+  const byOpening = item.opened_on && item.days_after_opening ? addDays(item.opened_on, item.days_after_opening) : null;
+  if (byOpening && (!item.expiry || byOpening < item.expiry.slice(0, 10))) return { date: byOpening, byOpening: true };
+  return { date: item.expiry ? item.expiry.slice(0, 10) : null, byOpening: false };
+}
+
 export function itemStatus(item: Item, today: string, soonDays: number): ItemStatus {
   const out = item.quantity <= 0;
   const low = item.min_quantity != null && item.quantity <= item.min_quantity;
-  const days = item.expiry ? daysBetween(today, item.expiry) : null;
+  const effective = effectiveExpiry(item);
+  const days = effective.date ? daysBetween(today, effective.date) : null;
+  const openedDays = item.opened_on && !out ? daysBetween(item.opened_on, today) : null;
   // An empty item can't go off: the date belonged to the batch that is gone.
   const expired = !out && days != null && days < 0;
   const soon = !out && days != null && days >= 0 && days <= soonDays;
-  return { out, low, days, expired, soon, onList: !!item.shopping };
+  return { out, low, days, expired, soon, onList: !!item.shopping, byOpening: effective.byOpening, openedDays };
 }
 
 /** Whether an item needs attention (drives the icon tint and the "Low" filter). */
@@ -134,7 +154,7 @@ export type Filter =
 export function matchesQuery(item: Item, query: string): boolean {
   const q = norm(query);
   if (!q) return true;
-  return [item.name, item.notes, item.category, item.location].some((f) => norm(f).includes(q));
+  return [item.name, item.notes, item.category, item.location, ...(item.barcodes ?? [])].some((f) => norm(f).includes(q));
 }
 
 export function applyFilter(
@@ -229,4 +249,23 @@ export function diffFields<T extends Record<string, unknown>>(before: Partial<T>
     if (value !== prev) out[key] = value;
   }
   return out as Partial<T>;
+}
+
+/** "520 1127, 5208069003184" -> ["5201127", "5208069003184"]: what the sheet's text field holds, as a list. */
+export function parseBarcodes(text: string | null | undefined): string[] {
+  const out: string[] = [];
+  for (const part of String(text ?? "").split(/[,;\n]+/)) {
+    const code = part.replace(/[\s-]/g, "");
+    if (code && !out.includes(code)) out.push(code);
+  }
+  return out;
+}
+
+export function formatBarcodes(codes: string[] | null | undefined): string {
+  return (codes ?? []).join(", ");
+}
+
+/** Digits a camera or a handheld scanner gives for a product barcode (EAN-8/13, UPC-A/E). */
+export function looksLikeBarcode(text: string): boolean {
+  return /^\d{6,14}$/.test(text.replace(/[\s-]/g, ""));
 }

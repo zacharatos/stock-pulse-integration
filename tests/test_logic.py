@@ -4,10 +4,13 @@ from datetime import date
 
 from custom_components.stock_pulse.logic import (
     buy_amount,
+    effective_expiry,
     expiry_state,
     fmt_number,
     is_low,
+    norm_barcode,
     parse_summary,
+    product_suggestion,
     shopping_summary,
 )
 
@@ -51,3 +54,49 @@ def test_expiry():
 def test_fmt_number():
     assert fmt_number(2.0) == "2"
     assert fmt_number(0.25) == "0.25"
+
+
+def test_barcodes_are_digits_and_upc_becomes_ean():
+    assert norm_barcode("5201127090423") == "5201127090423"
+    assert norm_barcode(" 520 1127-090423 ") == "5201127090423"
+    assert norm_barcode("036000291452") == "0036000291452"  # UPC-A
+    assert norm_barcode("96385074") == "96385074"  # EAN-8
+    assert norm_barcode("Milk") is None
+    assert norm_barcode("12345") is None
+    assert norm_barcode(None) is None
+
+
+def test_product_suggestion():
+    product = {
+        "product_name": "Soft light",
+        "product_name_el": "Βιτάμ Soft light",
+        "brands": "Βιτάμ, Flora Food Group",
+        "quantity": "225 g",
+        "categories_tags": ["en:spreads", "en:margarines"],
+        "image_front_small_url": "https://images.example/1.jpg",
+    }
+    # The HA language first; a brand already in the name isn't repeated in the note.
+    assert product_suggestion(product, "openfoodfacts", "el") == {
+        "name": "Βιτάμ Soft light", "category": "food", "notes": "225 g", "image": "https://images.example/1.jpg",
+    }
+    english = product_suggestion(product, "openfoodfacts", "en")
+    assert english["name"] == "Soft light" and english["notes"] == "Βιτάμ · 225 g"
+    assert product_suggestion({"product_name": "Ice", "categories_tags": ["en:frozen-foods"]}, "openfoodfacts")["category"] == "frozen"
+    assert product_suggestion({"product_name": "Shampoo"}, "openbeautyfacts")["category"] == "toiletries"
+    assert product_suggestion({"product_name": "Bulb"}, "openproductsfacts")["notes"] is None
+    assert product_suggestion({"product_name": " "}, "openfoodfacts") is None
+
+
+def test_an_opened_pack_counts_from_opening():
+    turkey = {"quantity": 1, "expiry": "2026-12-29", "opened_on": "2026-10-05", "days_after_opening": 10}
+    assert effective_expiry(turkey) == ("2026-10-15", True)
+    assert expiry_state(turkey, date(2026, 10, 13), 3) == "soon"
+    assert expiry_state(turkey, date(2026, 10, 16), 3) == "expired"
+    # The label's date still wins when it is earlier.
+    assert effective_expiry({**turkey, "expiry": "2026-10-10"}) == ("2026-10-10", False)
+    # Opened but no keeping time, or a keeping time but not opened: the label's date.
+    assert effective_expiry({**turkey, "days_after_opening": None}) == ("2026-12-29", False)
+    assert effective_expiry({**turkey, "opened_on": None}) == ("2026-12-29", False)
+    assert effective_expiry({"quantity": 1, "opened_on": "2026-10-05", "days_after_opening": 3}) == ("2026-10-08", True)
+    # Items stored before these fields existed.
+    assert effective_expiry({"quantity": 1}) == (None, False)

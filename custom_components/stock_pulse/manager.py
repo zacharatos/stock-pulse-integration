@@ -22,6 +22,8 @@ from homeassistant.helpers.start import async_at_started
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    ATTR_BARCODES,
+    ATTR_OPENED_ON,
     ATTR_QUANTITY,
     CONF_AUTO_ADD,
     CONF_AUTO_RESTOCK,
@@ -180,15 +182,63 @@ class StockPulseManager:
 
     async def async_add_item(self, data: dict[str, Any]) -> dict[str, Any]:
         item = self.inventory.create(data)
+        self._claim_barcodes(item)
         await self._after_change(item, None)
         return item
 
     async def async_update_item(self, ref: str, changes: dict[str, Any]) -> dict[str, Any]:
         item = self.get(ref)
         before = deepcopy(item)
+        if float(before[ATTR_QUANTITY]) <= 0 < float(changes.get(ATTR_QUANTITY, 0)) and ATTR_OPENED_ON not in changes:
+            # Ran out, now restocked: the pack that was open is gone, the new ones are sealed.
+            changes = {**changes, ATTR_OPENED_ON: None}
         self.inventory.patch(item["id"], changes)
+        if ATTR_BARCODES in changes:
+            self._claim_barcodes(item)
         await self._after_change(item, before)
         return item
+
+    def _claim_barcodes(self, item: dict[str, Any]) -> None:
+        """A barcode belongs to one item: the one it was just given to. Others let go of it."""
+        mine = set(item.get(ATTR_BARCODES) or [])
+        if not mine:
+            return
+        for other in self.inventory.items.values():
+            codes = other.get(ATTR_BARCODES) or []
+            if other is not item and mine.intersection(codes):
+                other[ATTR_BARCODES] = [c for c in codes if c not in mine]
+
+    async def async_lookup(self, barcode: str) -> dict[str, Any]:
+        """What a scanned barcode is: an item we have, a product from the open databases, or nothing.
+
+        Known barcodes are answered from the inventory, so the second scan of a pack needs no internet.
+        """
+        from .logic import norm_barcode, product_suggestion
+        from .lookup import async_lookup_product
+
+        code = norm_barcode(barcode)
+        if code is None:
+            raise ServiceValidationError(
+                f"'{barcode}' is not a barcode",
+                translation_domain=DOMAIN,
+                translation_key="not_a_barcode",
+                translation_placeholders={"barcode": str(barcode)},
+            )
+        result: dict[str, Any] = {"barcode": code, "item_id": None, "product": None, "source": None, "error": None}
+        if (item := self.inventory.find_barcode(code)) is not None:
+            result["item_id"] = item["id"]
+            return result
+        try:
+            found = await async_lookup_product(self.hass, code)
+        except HomeAssistantError as err:
+            # Offline or the database is down: the card still opens the sheet with the barcode.
+            result["error"] = str(err)
+            return result
+        if found is not None:
+            source, product = found
+            result["product"] = product_suggestion(product, source, self.language)
+            result["source"] = source if result["product"] else None
+        return result
 
     async def async_adjust(self, ref: str, amount: float) -> dict[str, Any]:
         item = self.get(ref)
@@ -431,8 +481,9 @@ class StockPulseManager:
     @staticmethod
     def _restock(item: dict[str, Any], amount: float) -> None:
         if float(item[ATTR_QUANTITY]) <= 0:
-            # The old batch is gone, so its best-before date is too.
+            # The old batch is gone, so its best-before date is too, and the new packs are sealed.
             item["expiry"] = None
+            item[ATTR_OPENED_ON] = None
         item[ATTR_QUANTITY] = round(float(item[ATTR_QUANTITY]) + amount, 3)
         item["shopping_dismissed"] = False
         item["updated"] = dt_util.utcnow().isoformat()

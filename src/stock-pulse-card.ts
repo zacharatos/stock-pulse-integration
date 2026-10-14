@@ -3,18 +3,22 @@ import { property, state } from "lit/decorators.js";
 import { classMap } from "lit/directives/class-map.js";
 import { styleMap } from "lit/directives/style-map.js";
 
-import type { Item, ItemFields, Snapshot, StockPulseCardConfig } from "./types";
+import type { ExternalBus, ExternalCommand, Item, ItemFields, LookupResult, Snapshot, StockPulseCardConfig } from "./types";
 import type { HomeAssistant } from "./types";
 import {
   applyFilter,
   boughtAmount,
   diffFields,
+  effectiveExpiry,
   fmtQty,
+  formatBarcodes,
   groupItems,
   itemIcon,
   itemStatus,
+  looksLikeBarcode,
   needsStock,
   norm,
+  parseBarcodes,
   presentValues,
   scoped,
   sortItems,
@@ -30,7 +34,7 @@ import { cardStyles, dialogStyles } from "./styles";
 import { defineElement } from "./register";
 import "./editor";
 
-export const VERSION = "1.2.0";
+export const VERSION = "1.3.0";
 const WS = "stock_pulse";
 const GROUP_BY = ["category", "location", "none"];
 const SORT = ["name", "quantity", "expiry"];
@@ -44,14 +48,81 @@ declare global {
   }
 }
 
+/** The sheet's form: like an item, but barcodes are one comma-separated text field. */
+type FormFields = Omit<ItemFields, "barcodes"> & { barcodes?: string };
+
+/** How the sheet was reached by a scan, for the line under its title. */
+interface ScanNote {
+  code: string;
+  outcome: "item" | "product" | "none" | "offline";
+  source?: string | null;
+  image?: string | null;
+  amount?: number;
+}
+
 interface DialogState {
   mode: "add" | "edit";
   id?: string;
-  data: ItemFields;
+  data: FormFields;
   original: ItemFields;
   armed: boolean;
   busy: boolean;
   error?: string;
+  scan?: ScanNote;
+  /** Decided when the sheet opens, so clearing the field doesn't make it vanish while typing. */
+  showBarcodes: boolean;
+  /** Same for the opened-on date: shown when the item has one. */
+  showOpened: boolean;
+}
+
+interface ScanState {
+  phase: "camera" | "looking" | "error";
+  error?: string;
+  manual: string;
+  manualError?: string;
+  /** No camera here (plain http in a browser, or "type it" from the app's scanner): just the field. */
+  manualOnly?: boolean;
+}
+
+// The Shape Detection API isn't in TypeScript's DOM types yet.
+interface DetectedBarcode {
+  rawValue: string;
+  format: string;
+}
+interface BarcodeDetectorLike {
+  detect(source: CanvasImageSource): Promise<DetectedBarcode[]>;
+}
+interface BarcodeDetectorClass {
+  new (options?: { formats: string[] }): BarcodeDetectorLike;
+  getSupportedFormats(): Promise<string[]>;
+}
+const PRODUCT_FORMATS = ["ean_13", "ean_8", "upc_a", "upc_e"];
+const SOURCES: Record<string, string> = {
+  openfoodfacts: "Open Food Facts",
+  openbeautyfacts: "Open Beauty Facts",
+  openproductsfacts: "Open Products Facts",
+};
+
+/**
+ * The companion app's own scanner, when the app offers one. It runs natively, so it works on plain
+ * http:// (a local IP) too. Only used when the frontend's command handler can be chained, so the
+ * app's other commands keep reaching the frontend.
+ */
+function nativeScanner(hass?: { auth?: { external?: ExternalBus } }): ExternalBus | undefined {
+  const bus = hass?.auth?.external;
+  return bus?.config?.hasBarCodeScanner && typeof bus.fireMessage === "function" && typeof bus._commandHandler === "function"
+    ? bus
+    : undefined;
+}
+
+/** The in-page camera path needs a secure page (HTTPS), the Barcode Detection API and a camera. */
+function canScan(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.isSecureContext &&
+    "BarcodeDetector" in window &&
+    !!navigator.mediaDevices?.getUserMedia
+  );
 }
 
 interface View {
@@ -76,6 +147,9 @@ const EDITABLE: (keyof ItemFields)[] = [
   "auto_shop",
   "notes",
   "icon",
+  "barcodes",
+  "opened_on",
+  "days_after_opening",
 ];
 
 export class StockPulseCard extends LitElement {
@@ -87,12 +161,15 @@ export class StockPulseCard extends LitElement {
   @state() private _query = "";
   @state() private _filter: Filter = { kind: "all" };
   @state() private _dialog?: DialogState;
+  @state() private _scan?: ScanState;
 
   private _unsub?: Promise<() => unknown>;
   private _subscribedTo?: string;
   private _retry?: number;
   private _view?: View;
   private _today = todayISO();
+  private _stream?: MediaStream;
+  private _scanTimer?: number;
 
   static styles = [cardStyles, dialogStyles];
 
@@ -145,6 +222,7 @@ export class StockPulseCard extends LitElement {
   disconnectedCallback(): void {
     super.disconnectedCallback();
     this._resize.disconnect();
+    this._stopCamera();
     this._unsubscribe();
   }
 
@@ -304,6 +382,11 @@ export class StockPulseCard extends LitElement {
               <div class="title">${title}</div>
               ${snap ? html`<div class="secondary">${this._summary(view)}</div>` : nothing}
             </div>
+            ${snap && config.show_scan !== false && (nativeScanner(this.hass) || canScan())
+              ? html`<button class="round" title=${this._t("scan")} aria-label=${this._t("scan")} @click=${this._onScanButton}>
+                  <ha-icon icon="mdi:barcode-scan"></ha-icon>
+                </button>`
+              : nothing}
             ${snap
               ? html`<button class="round" title=${this._t("add_item")} aria-label=${this._t("add_item")} @click=${() => this._openAdd("")}>
                   <ha-icon icon="mdi:plus"></ha-icon>
@@ -320,7 +403,11 @@ export class StockPulseCard extends LitElement {
                 `
               : nothing}
         </div>
-        ${this._dialog && snap ? this._renderDialog(this._dialog, snap) : nothing}
+        ${this._dialog && snap
+          ? this._renderDialog(this._dialog, snap)
+          : this._scan && snap
+            ? this._renderScan(this._scan)
+            : nothing}
       </ha-card>
     `;
   }
@@ -365,6 +452,13 @@ export class StockPulseCard extends LitElement {
     if (ev.key !== "Enter" || !this._query.trim() || !this._snap) return;
     // Otherwise the same key press lands on the dialog's first button and closes it again.
     ev.preventDefault();
+    // A handheld barcode scanner types the digits and presses Enter: treat it like a camera scan.
+    if (looksLikeBarcode(this._query.trim())) {
+      const code = this._query.trim();
+      this._query = "";
+      void this._onScanned(code);
+      return;
+    }
     const q = norm(this._query);
     const match = this._snap.items.find((i) => norm(i.name) === q);
     if (match) this._openEdit(match);
@@ -452,6 +546,14 @@ export class StockPulseCard extends LitElement {
 
   private _expiryText(s: ItemStatus, item: Item): string | undefined {
     if (s.days == null || s.out) return undefined;
+    if (s.byOpening) {
+      // The open pack sets the date: say so, since the label's date is still far away.
+      if (s.days < 0) return this._t("opened_ago", { n: s.openedDays ?? 0 });
+      if (s.days === 0) return this._t("open_use_today");
+      if (s.days === 1) return this._t("open_use_tomorrow");
+      if (s.soon) return this._t("open_use_in", { n: s.days });
+      return this._t("open_use_by", { date: this._formatDate(effectiveExpiry(item).date!) });
+    }
     if (s.days < 0) return s.days === -1 ? this._t("expired_yesterday") : this._t("expired_ago", { n: -s.days });
     if (s.days === 0) return this._t("expires_today");
     if (s.days === 1) return this._t("expires_tomorrow");
@@ -485,7 +587,7 @@ export class StockPulseCard extends LitElement {
     if (item.location && groupBy !== "location" && !scopedTo) {
       meta.push({ text: labelFor(this.hass, "loc", item.location) });
     }
-    if (!meta.length && item.expiry && !s.out) meta.push({ text: this._expiryText(s, item)! });
+    if (!meta.length && s.days != null && !s.out) meta.push({ text: this._expiryText(s, item)! });
     const important = s.out || s.low || s.expired || s.soon;
     const step = stepFor(item.unit);
     const unit = item.unit === "pcs" ? "" : labelFor(this.hass, "unit", item.unit, item.quantity);
@@ -531,7 +633,7 @@ export class StockPulseCard extends LitElement {
 
   // ---- Dialog ---------------------------------------------------------------
 
-  private _schema(snap: Snapshot): Record<string, unknown>[] {
+  private _schema(snap: Snapshot, withBarcodes: boolean, withOpened: boolean): Record<string, unknown>[] {
     const items = snap.items;
     const options = (field: "unit" | "category" | "location", builtIn: string[], prefix: "unit" | "cat" | "loc") => {
       const custom = [...new Set(items.map((i) => i[field]).filter((v): v is string => !!v && !builtIn.includes(v)))];
@@ -562,7 +664,15 @@ export class StockPulseCard extends LitElement {
           { name: "location", selector: select(options("location", snap.locations, "loc")) },
         ],
       },
-      { name: "expiry", selector: { date: {} } },
+      {
+        type: "grid",
+        name: "",
+        schema: [
+          { name: "expiry", selector: { date: {} } },
+          { name: "days_after_opening", selector: { number: { min: 1, max: 3650, step: 1, mode: "box" } } },
+        ],
+      },
+      ...(withOpened ? [{ name: "opened_on", selector: { date: {} } }] : []),
       {
         type: "grid",
         name: "",
@@ -574,37 +684,56 @@ export class StockPulseCard extends LitElement {
       ...(snap.settings.shopping_list ? [{ name: "auto_shop", selector: { boolean: {} } }] : []),
       { name: "notes", selector: { text: { multiline: true } } },
       { name: "icon", selector: { icon: {} } },
+      // Calm by default: the field appears once an item has a barcode (scanned, or set by an action).
+      ...(withBarcodes ? [{ name: "barcodes", selector: { text: {} } }] : []),
     ];
   }
 
-  private async _openAdd(name: string): Promise<void> {
+  private async _openAdd(name: string, extra: ItemFields = {}, scan?: ScanNote): Promise<void> {
     const config = this._config!;
     const data: ItemFields = { name, quantity: 1, unit: "pcs", auto_shop: true };
     // Start from what the card is looking at: a freezer card adds to the freezer.
     if (this._filter.kind === "location") data.location = this._filter.value;
     else if (config.locations?.length === 1) data.location = config.locations[0];
     if (config.categories?.length === 1) data.category = config.categories[0];
+    // What the product databases said wins over the card's scope only where they say something.
+    for (const [key, value] of Object.entries(extra)) if (value != null && value !== "") (data as Record<string, unknown>)[key] = value;
     await loadHaElements();
-    this._dialog = { mode: "add", data: this._toForm(data), original: {}, armed: false, busy: false };
+    const form = this._toForm(data);
+    this._dialog = { mode: "add", data: form, original: {}, armed: false, busy: false, scan, showBarcodes: !!form.barcodes, showOpened: false };
   }
 
-  private async _openEdit(item: Item): Promise<void> {
+  private async _openEdit(item: Item, scan?: ScanNote): Promise<void> {
     const data: ItemFields = {};
     for (const key of EDITABLE) (data as Record<string, unknown>)[key] = item[key] ?? undefined;
+    const form = this._toForm(data);
+    // A known pack was scanned: one more of it, ready to confirm with Save.
+    if (scan?.amount) form.quantity = Math.round((item.quantity + scan.amount) * 1000) / 1000;
     await loadHaElements();
-    this._dialog = { mode: "edit", id: item.id, data: this._toForm(data), original: data, armed: false, busy: false };
+    this._dialog = {
+      mode: "edit",
+      id: item.id,
+      data: form,
+      original: data,
+      armed: false,
+      busy: false,
+      scan,
+      showBarcodes: !!form.barcodes,
+      showOpened: !!form.opened_on,
+    };
   }
 
-  private _toForm(data: ItemFields): ItemFields {
+  private _toForm(data: ItemFields): FormFields {
     return {
       ...data,
       unit: toFormValue(this.hass, "unit", data.unit),
       category: toFormValue(this.hass, "cat", data.category),
       location: toFormValue(this.hass, "loc", data.location),
+      barcodes: data.barcodes?.length ? formatBarcodes(data.barcodes) : undefined,
     };
   }
 
-  private _fromForm(data: ItemFields): ItemFields {
+  private _fromForm(data: FormFields): ItemFields {
     const snap = this._snap!;
     return {
       ...data,
@@ -612,6 +741,7 @@ export class StockPulseCard extends LitElement {
       unit: fromFormValue(this.hass, "unit", data.unit, snap.units) ?? "pcs",
       category: fromFormValue(this.hass, "cat", data.category, snap.categories),
       location: fromFormValue(this.hass, "loc", data.location, snap.locations),
+      barcodes: parseBarcodes(data.barcodes),
     };
   }
 
@@ -620,23 +750,29 @@ export class StockPulseCard extends LitElement {
     const s = item ? this._view!.statuses.get(item.id) : undefined;
     const title = d.mode === "add" ? this._t("new_item") : item?.name ?? d.data.name ?? "";
     const icon = d.data.icon || (item ? itemIcon(item) : "mdi:package-variant-plus");
+    const image = d.scan?.image;
     const canShop = !!snap.settings.shopping_list && d.mode === "edit" && !!item;
     const expiry = item && s ? this._expiryText(s, item) : undefined;
     // Only for items already saved; a new item has nothing to restock yet.
     const bought = item && s && d.mode === "edit" ? boughtAmount(item, s) : null;
+    // "Opened" for a pack in stock that isn't marked open yet; once it is, a pill says since when
+    // (unless the date pill already says it).
+    const openable = !!item && !!s && d.mode === "edit" && !s.out && !item.opened_on;
+    const openedPill = !!s && s.openedDays != null && !(s.byOpening && (s.expired || s.soon));
 
     return html`
       <dialog class="sp-dialog" aria-label=${title} @close=${this._onDialogClosed} @click=${this._onBackdrop}>
         <div class="surface">
           <div class="d-head">
-            <div class="badge"><ha-icon .icon=${icon}></ha-icon></div>
+            <div class="badge">${image ? html`<img src=${image} alt="" referrerpolicy="no-referrer" />` : html`<ha-icon .icon=${icon}></ha-icon>`}</div>
             <div class="d-title">${title}</div>
             <button class="round" aria-label=${this._t("close")} @click=${this._closeDialog}>
               <ha-icon icon="mdi:close"></ha-icon>
             </button>
           </div>
           <div class="d-body">
-            ${item && s && (s.out || s.low || s.onList || s.expired || s.soon)
+            ${d.scan ? html`<div class="d-note">${this._scanNote(d.scan, item)}</div>` : nothing}
+            ${item && s && (s.out || s.low || s.onList || s.expired || s.soon || openable || openedPill)
               ? html`<div class="d-status">
                   ${s.out
                     ? html`<span class="pill bad"><ha-icon icon="mdi:alert-circle-outline"></ha-icon>${this._t("out_of_stock")}</span>`
@@ -650,6 +786,16 @@ export class StockPulseCard extends LitElement {
                     : nothing}
                   ${s.onList
                     ? html`<span class="pill"><ha-icon icon="mdi:cart-outline"></ha-icon>${this._t("on_list")}</span>`
+                    : nothing}
+                  ${openedPill
+                    ? html`<span class="pill"><ha-icon icon="mdi:package-variant"></ha-icon>${s.openedDays === 0
+                        ? this._t("opened_today")
+                        : this._t("opened_ago", { n: s.openedDays! })}</span>`
+                    : nothing}
+                  ${openable
+                    ? html`<button class="bought" aria-label=${this._t("opened_aria")} ?disabled=${d.busy} @click=${() => this._onOpened(item!)}>
+                        <ha-icon icon="mdi:package-variant"></ha-icon>${this._t("opened")}
+                      </button>`
                     : nothing}
                   ${bought != null
                     ? html`<button
@@ -667,10 +813,10 @@ export class StockPulseCard extends LitElement {
             <ha-form
               .hass=${this.hass}
               .data=${d.data}
-              .schema=${this._schema(snap)}
+              .schema=${this._schema(snap, d.showBarcodes, d.showOpened)}
               .computeLabel=${(f: { name: string }) => this._t(`f_${f.name}`)}
               .computeHelper=${(f: { name: string }) =>
-                f.name === "min_quantity" || f.name === "restock_quantity" ? this._t(`h_${f.name}`) : undefined}
+                ["min_quantity", "restock_quantity", "barcodes"].includes(f.name) ? this._t(`h_${f.name}`) : undefined}
               @value-changed=${this._onFormChanged}
             ></ha-form>
             ${d.error ? html`<div class="d-error">${d.error}</div>` : nothing}
@@ -708,7 +854,7 @@ export class StockPulseCard extends LitElement {
     `;
   }
 
-  private _onFormChanged = (ev: CustomEvent<{ value: ItemFields }>) => {
+  private _onFormChanged = (ev: CustomEvent<{ value: FormFields }>) => {
     ev.stopPropagation();
     if (!this._dialog) return;
     this._dialog = { ...this._dialog, data: { ...ev.detail.value }, armed: false, error: undefined };
@@ -743,7 +889,9 @@ export class StockPulseCard extends LitElement {
         await this._call({ type: `${WS}/item/add`, item: fields });
         this._query = "";
       } else {
-        const changes = diffFields(d.original, data);
+        const { barcodes, ...rest } = data;
+        const changes = diffFields<Record<string, unknown>>({ ...d.original, barcodes: undefined }, rest) as ItemFields;
+        if (formatBarcodes(barcodes) !== formatBarcodes(d.original.barcodes)) changes.barcodes = barcodes;
         if (Object.keys(changes).length) {
           await this._call({ type: `${WS}/item/update`, item_id: d.id, changes });
         }
@@ -807,6 +955,216 @@ export class StockPulseCard extends LitElement {
     } catch (err) {
       if (this._dialog) this._dialog = { ...this._dialog, busy: false, error: errorMessage(err) };
     }
+  }
+
+  /** Opened a pack: today becomes its opened-on date, one tap, like Bought. */
+  private async _onOpened(item: Item): Promise<void> {
+    const d = this._dialog;
+    if (!d || d.busy) return;
+    this._dialog = { ...d, busy: true, error: undefined };
+    try {
+      await this._call({ type: `${WS}/item/update`, item_id: item.id, changes: { opened_on: todayISO() } });
+      toast(this, this._t("opened_toast", { name: item.name }));
+      this._closeDialog();
+    } catch (err) {
+      if (this._dialog) this._dialog = { ...this._dialog, busy: false, error: errorMessage(err) };
+    }
+  }
+
+  // ---- Scanning -------------------------------------------------------------
+
+  private _scanNote(scan: ScanNote, item?: Item): string {
+    if (scan.outcome === "item" && item) return this._t("scan_known", { amount: this._amountText(item, scan.amount ?? 0) });
+    if (scan.outcome === "product") return this._t("scan_found", { source: SOURCES[scan.source ?? ""] ?? scan.source ?? "" });
+    if (scan.outcome === "offline") return this._t("scan_offline");
+    return this._t("scan_not_found");
+  }
+
+  private _renderScan(scan: ScanState): TemplateResult {
+    const title = this._t("scan");
+    return html`
+      <dialog class="sp-dialog" aria-label=${title} @close=${this._onScanClosed} @click=${this._onBackdrop}>
+        <div class="surface">
+          <div class="d-head">
+            <div class="badge"><ha-icon icon="mdi:barcode-scan"></ha-icon></div>
+            <div class="d-title">${title}</div>
+            <button class="round" aria-label=${this._t("close")} @click=${this._closeDialog}>
+              <ha-icon icon="mdi:close"></ha-icon>
+            </button>
+          </div>
+          <div class="d-body">
+            ${scan.manualOnly
+              ? html`<p class="scan-hint">${this._t("scan_type_only")}</p>`
+              : html`<div class="scan-view">
+              <video playsinline muted autoplay></video>
+              ${scan.phase === "camera" ? html`<div class="guide"></div>` : nothing}
+              ${scan.phase === "looking"
+                ? html`<div class="state"><ha-icon icon="mdi:barcode"></ha-icon>${this._t("scan_looking")}</div>`
+                : scan.phase === "error"
+                  ? html`<div class="state">${scan.error}</div>`
+                  : nothing}
+            </div>
+            <p class="scan-hint">${this._t("scan_hint")}</p>`}
+            <form class="scan-manual" @submit=${this._onManualScan}>
+              <input
+                inputmode="numeric"
+                autocomplete="off"
+                enterkeyhint="search"
+                placeholder=${this._t("scan_manual")}
+                aria-label=${this._t("scan_manual")}
+                .value=${scan.manual}
+                @input=${(ev: Event) =>
+                  this._scan && (this._scan = { ...this._scan, manual: (ev.target as HTMLInputElement).value, manualError: undefined })}
+              />
+              <button class="btn" type="submit" ?disabled=${scan.phase === "looking" || !scan.manual.trim()}>${this._t("scan_find")}</button>
+            </form>
+            ${scan.manualError ? html`<div class="d-error">${scan.manualError}</div>` : nothing}
+          </div>
+        </div>
+      </dialog>
+    `;
+  }
+
+  /**
+   * Open the companion app's scanner. The app answers with a bar_code/scan_result or bar_code/aborted
+   * command; the card listens by chaining onto the frontend's command handler for as long as the scan is
+   * open, and passes every command on, so nothing else the app sends is lost.
+   */
+  private _openNativeScan(bus: ExternalBus): void {
+    const previous = bus._commandHandler;
+    const restore = () => {
+      if (bus._commandHandler === handler) bus.addCommandHandler(previous);
+    };
+    const handler = (msg: ExternalCommand): boolean => {
+      if (msg.command === "bar_code/scan_result") {
+        const code = String(msg.payload?.rawValue ?? "");
+        if (!looksLikeBarcode(code)) {
+          // A QR code or similar: say so and keep the scanner open, as HA's own scanner does.
+          bus.fireMessage({ type: "bar_code/notify", payload: { message: this._t("not_a_barcode") } });
+        } else {
+          restore();
+          bus.fireMessage({ type: "bar_code/close" });
+          void this._onScanned(code);
+        }
+      } else if (msg.command === "bar_code/aborted") {
+        restore();
+        // "Type the numbers" in the app's scanner: our sheet with the field (its camera stays off on http).
+        if (msg.payload?.reason === "alternative_options") void this._openScan(true);
+      }
+      return previous ? previous(msg) : true;
+    };
+    bus.addCommandHandler(handler);
+    bus.fireMessage({
+      type: "bar_code/scan",
+      payload: { title: this._t("scan"), description: this._t("scan_hint"), alternative_option_label: this._t("scan_manual") },
+    });
+  }
+
+  private _onScanButton = () => {
+    const bus = nativeScanner(this.hass);
+    if (bus) this._openNativeScan(bus);
+    else void this._openScan();
+  };
+
+  private _openScan = async (manualOnly = false) => {
+    this._scan = { phase: "camera", manual: "" };
+    if (manualOnly || !canScan()) {
+      this._scan = { phase: "error", manual: "", manualOnly: true };
+      return;
+    }
+    await this.updateComplete;
+    const video = this.renderRoot.querySelector<HTMLVideoElement>(".scan-view video");
+    if (!video) return;
+    try {
+      const Detector = (window as unknown as { BarcodeDetector: BarcodeDetectorClass }).BarcodeDetector;
+      const supported = await Detector.getSupportedFormats();
+      const formats = PRODUCT_FORMATS.filter((f) => supported.includes(f));
+      const detector = new Detector({ formats: formats.length ? formats : PRODUCT_FORMATS });
+      this._stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+      if (!this._scan) return this._stopCamera(); // closed while asking for the camera
+      video.srcObject = this._stream;
+      await video.play();
+      const tick = async () => {
+        if (!this._scan || this._scan.phase !== "camera") return;
+        try {
+          const found = (await detector.detect(video)).find((b) => looksLikeBarcode(b.rawValue));
+          if (found) return void this._onScanned(found.rawValue);
+        } catch {
+          /* a frame that couldn't be read: try the next one */
+        }
+        this._scanTimer = window.setTimeout(tick, 200);
+      };
+      void tick();
+    } catch (err) {
+      this._stopCamera();
+      const denied = err instanceof DOMException && (err.name === "NotAllowedError" || err.name === "SecurityError");
+      if (this._scan) {
+        this._scan = {
+          ...this._scan,
+          phase: "error",
+          error: denied ? this._t("scan_denied") : this._t("scan_no_camera", { error: errorMessage(err) }),
+        };
+      }
+    }
+  };
+
+  private _stopCamera(): void {
+    window.clearTimeout(this._scanTimer);
+    this._stream?.getTracks().forEach((t) => t.stop());
+    this._stream = undefined;
+  }
+
+  private _onScanClosed = () => {
+    this._stopCamera();
+    this._scan = undefined;
+  };
+
+  private _onManualScan = (ev: Event) => {
+    ev.preventDefault();
+    const code = this._scan?.manual.trim() ?? "";
+    if (!looksLikeBarcode(code)) {
+      if (this._scan) this._scan = { ...this._scan, manualError: this._t("not_a_barcode") };
+      return;
+    }
+    void this._onScanned(code);
+  };
+
+  /** A barcode from the camera, the typed field or a handheld scanner: open the right sheet for it. */
+  private async _onScanned(code: string): Promise<void> {
+    const snap = this._snap;
+    if (!snap) return;
+    this._stopCamera();
+    navigator.vibrate?.(30);
+    if (this._scan) this._scan = { ...this._scan, phase: "looking" };
+    let result: LookupResult;
+    try {
+      result = await this._call<LookupResult>({ type: `${WS}/item/lookup`, barcode: code });
+    } catch (err) {
+      if (this._scan) this._scan = { ...this._scan, phase: "error", error: errorMessage(err) };
+      else toast(this, this._t("failed", { error: errorMessage(err) }));
+      return;
+    }
+    // Swap the scanner for the item sheet.
+    this._scan = undefined;
+    const item = result.item_id ? this._snap?.items.find((i) => i.id === result.item_id) : undefined;
+    if (item) {
+      // One pack scanned = one pack's worth: the buy amount when the item has one (a 9-pack of rolls,
+      // a 400 g block), else one step of its unit.
+      const amount = item.restock_quantity || stepFor(item.unit);
+      await this._openEdit(item, { code: result.barcode, outcome: "item", amount });
+      return;
+    }
+    const product = result.product;
+    await this._openAdd(
+      product?.name ?? "",
+      { barcodes: [result.barcode], category: product?.category ?? undefined, notes: product?.notes ?? undefined },
+      {
+        code: result.barcode,
+        outcome: product ? "product" : result.error ? "offline" : "none",
+        source: result.source,
+        image: product?.image,
+      }
+    );
   }
 
   // ---- Quantity -------------------------------------------------------------

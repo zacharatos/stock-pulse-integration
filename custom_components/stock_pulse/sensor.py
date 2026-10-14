@@ -15,7 +15,7 @@ from homeassistant.util import dt as dt_util
 
 from . import StockPulseConfigEntry
 from .const import DOMAIN, SIGNAL_UPDATED, VERSION
-from .logic import expiry_state, is_low, is_out
+from .logic import effective_expiry, expiry_state, is_low, is_out
 from .manager import StockPulseManager
 
 MAX_LISTED = 50
@@ -116,6 +116,8 @@ class StockSensor(SensorEntity):
                     "unit": i.get("unit"),
                     "location": i.get("location"),
                     "expiry": i.get("expiry"),
+                    # The date that counts: the best-before, or sooner once an opened pack's days run out.
+                    "use_by": effective_expiry(i)[0],
                     "on_shopping_list": bool(i.get("shopping")),
                 }
                 for i in items[:MAX_LISTED]

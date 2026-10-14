@@ -7,9 +7,14 @@ import {
   buyAmount,
   daysBetween,
   diffFields,
+  effectiveExpiry,
   fmtQty,
+  formatBarcodes,
   groupItems,
   itemStatus,
+  looksLikeBarcode,
+  matchesQuery,
+  parseBarcodes,
   presentValues,
   scoped,
   sortItems,
@@ -35,7 +40,7 @@ const items = [
 const statuses = new Map(items.map((i) => [i.id, itemStatus(i, TODAY, 3)]));
 
 test("status", () => {
-  assert.deepEqual(statuses.get("a"), { out: false, low: true, days: null, expired: false, soon: false, onList: false });
+  assert.deepEqual(statuses.get("a"), { out: false, low: true, days: null, expired: false, soon: false, onList: false, byOpening: false, openedDays: null });
   assert.equal(statuses.get("b").soon, true);
   assert.equal(statuses.get("c").expired, true);
   assert.equal(statuses.get("d").out, true);
@@ -147,4 +152,35 @@ test("the edit sheet shows names and stores keys", async () => {
   assert.equal(fromFormValue(el, "loc", "Freezer", ["freezer"]), "freezer");
   assert.equal(fromFormValue(undefined, "unit", " cartons ", units), "cartons");
   assert.equal(fromFormValue(undefined, "cat", "", []), null);
+});
+
+test("barcodes: the sheet's text field, scanner input, and search", () => {
+  assert.deepEqual(parseBarcodes("5201127090423, 520-8069 003184;5201127090423"), ["5201127090423", "5208069003184"]);
+  assert.deepEqual(parseBarcodes(""), []);
+  assert.deepEqual(parseBarcodes(undefined), []);
+  assert.equal(formatBarcodes(["5201127090423", "5208069003184"]), "5201127090423, 5208069003184");
+  assert.equal(formatBarcodes(undefined), "");
+  assert.ok(looksLikeBarcode("5202576461208"));
+  assert.ok(looksLikeBarcode("9638 5074")); // EAN-8 with a space
+  assert.ok(!looksLikeBarcode("Milk"));
+  assert.ok(!looksLikeBarcode("12345")); // too short to be a product code
+  const gouda = item("g", "Gouda", { barcodes: ["5202576461208"] });
+  assert.ok(matchesQuery(gouda, "520257646"));
+  // Items stored before barcodes existed have no field at all.
+  assert.ok(!matchesQuery(item("x", "Milk"), "520"));
+});
+
+test("an opened pack counts from opening, like the integration", () => {
+  const turkey = item("t", "Smoked turkey", { expiry: "2026-12-29", opened_on: "2026-10-01", days_after_opening: 10 });
+  assert.deepEqual(effectiveExpiry(turkey), { date: "2026-10-11", byOpening: true });
+  const s = itemStatus(turkey, TODAY, 3);
+  assert.equal(s.days, 4);
+  assert.equal(s.byOpening, true);
+  assert.equal(s.openedDays, 6);
+  assert.ok(!s.soon);
+  assert.ok(itemStatus(turkey, "2026-10-09", 3).soon);
+  assert.ok(itemStatus(turkey, "2026-10-12", 3).expired);
+  assert.deepEqual(effectiveExpiry({ ...turkey, expiry: "2026-10-05" }), { date: "2026-10-05", byOpening: false });
+  assert.deepEqual(effectiveExpiry(item("m", "Milk")), { date: null, byOpening: false });
+  assert.equal(itemStatus(item("m", "Milk"), TODAY, 3).openedDays, null);
 });

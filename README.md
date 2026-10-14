@@ -3,10 +3,12 @@
 A household inventory for Home Assistant, with a shopping list that fills itself and a sleek dashboard card to run it.
 
 - Keep count of what you have at home: quantity and unit (pieces, packs, rolls, bottles, kg…), category, location (pantry, fridge, **freezer**…), best-before date, notes.
+- **Opened it?** Things that keep only a few days once open (cold cuts, sauces, milk) can say so: tap **Opened** in the item's sheet, and *Expiring soon* follows the open pack instead of a best-before date months away.
 - Give an item a **threshold** and it goes on your shopping list by itself when stock drops to it.
 - **Tick it off the shopping list** when you buy it and the bought amount is added back to the inventory.
 - A card that looks at home next to the built-in cards: search and quick add, filter chips, grouping, +/- steppers, and an edit sheet. English and Greek.
 - **Bought it on the way home?** One tap on **Bought** in an item's sheet adds the amount you'd buy (or the amount on its shopping-list entry) and takes it off the list.
+- **Scan a barcode** to put the shopping away: a pack you already have opens with one more of it; a new one opens the add sheet with its name filled in from [Open Food Facts](https://world.openfoodfacts.org). The barcode stays with the item, so the next scan needs no internet.
 
 Screenshots are from Home Assistant 2026.2 (sections view, built-in light and dark themes).
 
@@ -76,6 +78,7 @@ That is a complete config. Everything below is optional and available in the vis
 | `categories` | all | Only show these categories. |
 | `show_search` | `true` | The search box, which doubles as quick add: type a name and press Enter. |
 | `show_filters` | `true` | Chips for All, Low, Expiring, On list and each location. |
+| `show_scan` | `true` | The barcode button in the header (shown only where the camera can scan; see below). |
 | `hide_out_of_stock` | `false` | Hide items at 0 (the Low chip and search still find them). |
 | `compact` | `false` | Shorter rows; only urgent details are shown under a name. |
 | `max_height` | none | e.g. `480px`; the list scrolls inside the card. |
@@ -93,11 +96,36 @@ sort: expiry
 
 Tap a filter chip again to go back to everything. In an item's sheet, **Bought** appears when the item is low, out, or on the shopping list: it adds the amount on the list entry (or the buy amount) in one go, and the entry disappears from the list, exactly as if you had ticked it off.
 
+## Opened packs
+
+Give an item **Keeps after opening (days)**, the line on the label that says "keeps 10 days in the fridge after opening". When you open one, tap **Opened** in its sheet: today becomes its *Opened on* date, and the date that counts is whichever comes first, the best-before or opened + those days. The row then says *Opened · use within 2 days*, and the item shows up under *Expiring* and in the expiring sensors in time.
+
+- Buying more while one is open keeps the open pack's date. Running out and restocking clears it, since the new packs are sealed.
+- The *Opened on* date can be corrected in the sheet, and both fields can be set from actions (`opened_on`, `days_after_opening`).
+
+## Scanning barcodes
+
+The **barcode button** in the card's header opens a barcode scanner. Point the phone at the barcode on a pack:
+
+- **A pack you already have** (its barcode is on an item): that item's sheet opens with one more of it added, its *Buy amount* if it has one (a 9-pack of rolls, a 400 g block), otherwise one step. **Save** keeps it.
+- **A new pack:** the add sheet opens with the name, a category and the brand and pack size (in *Notes*) from [Open Food Facts](https://world.openfoodfacts.org), or from Open Beauty Facts and Open Products Facts for toiletries and household things. Check it, add a date or a threshold, and save.
+- **Not in any database** (many local and own-brand products aren't): the add sheet opens empty. Give it a name and save. The barcode is kept either way, so the next scan of that pack is recognised straight away.
+
+Only the barcode digits are sent, to Open Food Facts and its sister databases, and only for barcodes that aren't on an item yet. Answers are kept in memory for a while. No account or key is needed. The product data is © Open Food Facts contributors, [ODbL](https://opendatacommons.org/licenses/odbl/1-0/).
+
+Where it works:
+
+- **In the companion app** the card uses the app's own scanner, so it works however you reach Home Assistant, **local IP and plain `http://` included**, with no certificate or domain.
+- **In a browser** the card uses the browser's camera, which browsers only allow on **HTTPS** (Home Assistant Cloud, or your own certificate), in Chrome or Edge (Android, or a laptop with a camera). On plain `http://`, Safari or Firefox the button doesn't show in the browser.
+- **A handheld USB or Bluetooth barcode scanner works everywhere:** click the search box and scan. The card treats the digits the same way.
+- The scanner also has a field to **type the numbers**, for a barcode the camera can't read.
+- Barcodes appear in an item's sheet once it has one, and you can edit them there (several, separated by commas). Searching for the digits finds the item.
+
 Built-in units, categories and locations are translated; you can also type your own (a "Garage" location, a "Ferments" category, a "carton" unit).
 
 ## Sensors
 
-Each inventory gets four sensors, each with an `items` attribute listing the matching items:
+Each inventory gets four sensors, each with an `items` attribute listing the matching items (with `expiry`, the best-before date, and `use_by`, the date that counts once a pack is open):
 
 | Sensor | Counts |
 | --- | --- |
@@ -108,12 +136,12 @@ Each inventory gets four sensors, each with an `items` attribute listing the mat
 
 ## Actions
 
-All take an optional `inventory` (needed only if you have several). `item` is a name (case-insensitive) or an id.
+All take an optional `inventory` (needed only if you have several). `item` is a name (case-insensitive), an id, or one of the item's barcodes.
 
 | Action | Use |
 | --- | --- |
-| `stock_pulse.add_item` | Add an item; if one with that name exists, its quantity is increased. |
-| `stock_pulse.update_item` | Change any field. |
+| `stock_pulse.add_item` | Add an item; if one with that name (or that `barcode`) exists, its quantity is increased. |
+| `stock_pulse.update_item` | Change any field. `barcode` adds one barcode to the item; `barcodes` replaces the list. |
 | `stock_pulse.adjust_quantity` | `amount: -1` when you open one, `+6` when you unpack. Great on an NFC tag. |
 | `stock_pulse.remove_item` | Delete an item. |
 | `stock_pulse.add_to_shopping_list` | Put an item on the list now. |
@@ -162,6 +190,7 @@ npm install
 npm run typecheck && npm test && npm run build   # card → custom_components/stock_pulse/frontend/
 bash scripts/install-test-deps.sh && pytest     # integration
 python3 -m http.server 8765                      # then open /test/harness.html (?dark=1, ?lang=el, ?missing=1)
+pwsh scripts/deploy-dev.ps1                      # maintainer: try a build in your own HA before tagging (Samba share)
 ```
 
 The built card is committed on purpose: HACS installs `custom_components/stock_pulse` straight from the tag. See [AGENTS.md](AGENTS.md) for the project's working rules.

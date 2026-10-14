@@ -15,20 +15,24 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     ATTR_AUTO_SHOP,
+    ATTR_BARCODES,
     ATTR_CATEGORY,
+    ATTR_DAYS_AFTER_OPENING,
     ATTR_EXPIRY,
     ATTR_ICON,
     ATTR_LOCATION,
     ATTR_MIN_QUANTITY,
     ATTR_NAME,
     ATTR_NOTES,
+    ATTR_OPENED_ON,
     ATTR_QUANTITY,
     ATTR_RESTOCK_QUANTITY,
     ATTR_UNIT,
     DOMAIN,
+    MAX_BARCODES,
     STORAGE_VERSION,
 )
-from .logic import norm_name
+from .logic import norm_barcode, norm_name
 
 SAVE_DELAY = 2
 
@@ -91,6 +95,31 @@ def _positive(value: Any) -> float:
     return number
 
 
+def _barcodes(value: Any) -> list[str]:
+    """A list of barcodes, or one string with several separated by commas or spaces."""
+    if value in (None, ""):
+        return []
+    raw = value if isinstance(value, (list, tuple)) else str(value).replace(",", " ").split()
+    codes: list[str] = []
+    for part in raw:
+        code = norm_barcode(part)
+        if code is None:
+            raise vol.Invalid(f"not a barcode: {part}")
+        if code not in codes:
+            codes.append(code)
+    if len(codes) > MAX_BARCODES:
+        raise vol.Invalid(f"at most {MAX_BARCODES} barcodes per item")
+    return codes
+
+
+def _keeps_days(value: Any) -> int:
+    """Days a pack keeps once opened: a whole number from 1 to 10 years."""
+    number = _number(value)
+    if number != int(number) or not 1 <= number <= 3650:
+        raise vol.Invalid("must be a whole number of days from 1 to 3650")
+    return int(number)
+
+
 # Every editable field, all optional: used for updates.
 ITEM_FIELDS = {
     vol.Optional(ATTR_NAME): _name,
@@ -104,6 +133,9 @@ ITEM_FIELDS = {
     vol.Optional(ATTR_AUTO_SHOP): vol.Coerce(bool),
     vol.Optional(ATTR_NOTES): _text,
     vol.Optional(ATTR_ICON): _text,
+    vol.Optional(ATTR_BARCODES): _barcodes,
+    vol.Optional(ATTR_OPENED_ON): _date,
+    vol.Optional(ATTR_DAYS_AFTER_OPENING): _optional(_keeps_days),
 }
 
 UPDATE_SCHEMA = vol.Schema(ITEM_FIELDS)
@@ -160,12 +192,21 @@ class Inventory:
     # ---- queries ------------------------------------------------------------
 
     def find(self, ref: str) -> dict[str, Any] | None:
-        """An item by id, or by name (case-insensitive)."""
+        """An item by id, by name (case-insensitive), or by one of its barcodes."""
         if ref in self.items:
             return self.items[ref]
         wanted = norm_name(ref)
         for item in self.items.values():
             if norm_name(item["name"]) == wanted:
+                return item
+        return self.find_barcode(ref)
+
+    def find_barcode(self, code: str | None) -> dict[str, Any] | None:
+        wanted = norm_barcode(code)
+        if wanted is None:
+            return None
+        for item in self.items.values():
+            if wanted in (item.get(ATTR_BARCODES) or []):
                 return item
         return None
 
@@ -190,6 +231,9 @@ class Inventory:
             ATTR_AUTO_SHOP: data.get(ATTR_AUTO_SHOP, True),
             ATTR_NOTES: data.get(ATTR_NOTES),
             ATTR_ICON: data.get(ATTR_ICON),
+            ATTR_BARCODES: data.get(ATTR_BARCODES) or [],
+            ATTR_OPENED_ON: data.get(ATTR_OPENED_ON),
+            ATTR_DAYS_AFTER_OPENING: data.get(ATTR_DAYS_AFTER_OPENING),
             "created": now,
             "updated": now,
             # Link to the shopping-list entry this integration created, if any.

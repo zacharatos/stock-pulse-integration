@@ -30,13 +30,14 @@ Every change carries its next version. Read the latest tag on the remote (`git l
 | `manager.py` | The rules. `_sync_item` (item → shopping list), `async_reconcile` (shopping list → items), restock, events. One lock guards both directions. |
 | `inventory.py` | Storage (`.storage/stock_pulse.<entry_id>`), item validation (`ADD_SCHEMA`, `UPDATE_SCHEMA`), listeners. No rules here. |
 | `shopping.py` | Talks to any `todo.*` entity through the public todo actions only. |
-| `logic.py` | Pure rules with no HA imports: `is_low`, `buy_amount`, `shopping_summary`/`parse_summary`, `expiry_state`. |
-| `websocket.py` | `stock_pulse/subscribe` (full snapshot now and after every change), `item/add`, `item/update`, `item/remove`, `item/adjust`, `item/shop`, `inventories`, `sync`. |
+| `logic.py` | Pure rules with no HA imports: `is_low`, `buy_amount`, `shopping_summary`/`parse_summary`, `expiry_state`, `norm_barcode` (digits only, UPC-A → EAN-13), `product_suggestion` (Open Food Facts product → item fields), `effective_expiry` (the earlier of best-before and opened + days it keeps; `src/model.ts` has the same rule as `effectiveExpiry`). |
+| `lookup.py` | Product lookup by barcode in Open Food Facts, then Open Beauty Facts, then Open Products Facts (HA's shared aiohttp session, a User-Agent, a timeout, an in-memory cache). "Not found" only when every database answered; otherwise `HomeAssistantError`. |
+| `websocket.py` | `stock_pulse/subscribe` (full snapshot now and after every change), `item/add`, `item/update`, `item/remove`, `item/adjust`, `item/shop`, `item/lookup` (a scanned barcode → the item that has it, or a product to prefill; known barcodes never go online), `inventories`, `sync`. |
 | `services.py`, `services.yaml`, `icons.json` | Actions. |
 | `sensor.py` | In stock / low stock / expiring soon / expired. |
 | `config_flow.py` | Name + shopping list + options. |
 | `strings.json`, `translations/` | `en` and `el`; `strings.json` equals `translations/en.json`. |
-| `src/stock-pulse-card.ts` | The card: subscription, view model (cached in `willUpdate`), header, search/quick add, chips, list, rows, the edit sheet (native `<dialog>` + `ha-form`). |
+| `src/stock-pulse-card.ts` | The card: subscription, view model (cached in `willUpdate`), header, search/quick add, chips, list, rows, the edit sheet (native `<dialog>` + `ha-form`), the scanner: in the companion app its native scanner over the external bus (`hass.auth.external`, `bar_code/scan` → `bar_code/scan_result` / `bar_code/aborted`; works on plain http), otherwise the camera + `BarcodeDetector` (secure contexts only). A handheld scanner typing digits + Enter into the search box takes the same path. |
 | `src/model.ts` | Pure card logic: status, filtering, sorting, grouping, steps, diffs. Tested in `test/model.test.mjs`. |
 | `src/editor.ts` | Visual editor on `ha-form`; defaults are not written to YAML. |
 | `src/localize.ts` | All card strings, `en` and `el`, with `_one` plural keys. |
@@ -58,6 +59,8 @@ Rebuild after any change in `src/` and leave the bundle modified (CI fails if it
 
 The harness can't show the real `ha-form`, theme or load order, so check visible changes in a real instance too: a throwaway HA (`pip install homeassistant`, then `hass -c <dir>`) with `custom_components/stock_pulse` linked into `<dir>/custom_components/`. Look at a sections view and a masonry view, light and dark (the browser's colour scheme), English and Greek, and a phone width.
 
+**In the maintainer's own Home Assistant, before tagging:** `scripts/deploy-dev.ps1` (PowerShell 7, Windows) builds the card and mirrors `custom_components/stock_pulse` over his HA's `config/custom_components/stock_pulse` through the Samba share add-on (`-Share`, or `$env:PULSE_HA_SHARE`, the same one Pulse Cards' script uses). It saves the copy that was there to `%TEMP%\stock-pulse-ha-backup\<time>` first, and says at the end whether a restart is needed (anything outside `frontend/` changed) or a hard refresh is enough (card only). It never restarts or reloads HA itself, and agents don't run it. After the release he goes back to HACS with *Redownload*.
+
 Two things that only showed up there, and why the code looks the way it does:
 
 - **Load order.** The card is loaded with `add_extra_js_url`, which can run before HA's app installs its scoped custom-element registry. Elements defined before that are invisible to the dashboard ("Custom element doesn't exist"). `src/register.ts` waits for `<home-assistant>` to be defined first. Never call `customElements.define` directly.
@@ -77,7 +80,6 @@ Two things that only showed up there, and why the code looks the way it does:
 
 Options, not a to-do list; ask before starting one and keep it behind config.
 
-- **Barcode scanning** in the add sheet (camera via `BarcodeDetector`), with Open Food Facts lookup for name and image.
 - **Consumption history and "runs out in ~N days"** predictions from how fast quantities drop, so the list can be filled before an item is low.
 - **Batches**: the same item with several best-before dates (two packs of mince frozen on different days), used first-expiring-first.
 - **Frozen-on date** for freezer items, with a "frozen 3 months ago" hint.
@@ -97,4 +99,9 @@ The harness stubs `ha-form`; the pytest suite covers the integration with the bu
 - the card loading after an update (cache-busting `?v=`), and with the browser cache warm;
 - the loop with his real shopping list app, including ticking off on the phone while the dashboard is closed;
 - **Bought** in the sheet against his real shopping list: the entry disappears for an item put on the list automatically and for one added from the sheet;
-- other to-do integrations (Local to-do, cloud lists) and their uid behaviour.
+- other to-do integrations (Local to-do, cloud lists) and their uid behaviour;
+- scanning in the companion app (its native scanner: Android and iOS, over the local IP) and in Chrome over HTTPS (permission prompt, the back camera, how fast EAN-13 is read), and how many local products Open Food Facts knows.
+
+**The companion app's scanner** is reached through the frontend's external bus, which has one command-handler slot that the frontend fills. The card chains onto it only while its scan is open (`_openNativeScan`), passes every command on to the frontend's handler, and puts it back when the scan ends. It is used only when `_commandHandler` is there to chain; if a frontend release renames it, the card falls back to the browser camera instead of breaking the app's other commands.
+
+**Item fields added later** (`barcodes`, `opened_on`, `days_after_opening` in 1.3.0) are missing on items stored before; code reads them with a default (`item.get("barcodes") or []`, `item.barcodes ?? []`) instead of migrating storage.

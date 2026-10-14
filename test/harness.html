@@ -27,7 +27,7 @@
   .grid { display: grid; grid-template-columns: repeat(3, 380px); gap: 16px; align-items: start; }
   .cap { font: 12px system-ui; color: var(--secondary-text-color); margin: 0 0 6px 2px; }
   #log { font: 12px monospace; color: var(--secondary-text-color); margin-top: 16px; white-space: pre-wrap; }
-  @media (max-width: 700px) { body { padding: 12px; } .grid { grid-template-columns: 1fr; } }
+  @media (max-width: 700px) { body { padding: 12px; } .grid { grid-template-columns: minmax(0, 1fr); } }
 </style>
 <script>
   // --- Stubs for HA's own elements -------------------------------------------------
@@ -132,8 +132,9 @@
     item("Basmati rice", { quantity: 1.5, unit: "kg", category: "food", location: "pantry", expiry: day(140) }),
     item("Olive oil", { quantity: 1, unit: "bottle", category: "food", location: "pantry", min_quantity: 1 }),
     item("Greek yoghurt", { quantity: 2, unit: "pcs", category: "food", location: "fridge", expiry: day(1) }),
-    item("Feta", { quantity: 400, unit: "g", category: "food", location: "fridge", expiry: day(-2) }),
+    item("Feta", { quantity: 400, unit: "g", category: "food", location: "fridge", expiry: day(-2), restock_quantity: 400, barcodes: ["5202576461208"] }),
     item("Milk", { quantity: 1, unit: "bottle", category: "drinks", location: "fridge", min_quantity: 1, expiry: day(4) }),
+    item("Smoked turkey", { quantity: 1, unit: "pack", category: "food", location: "fridge", expiry: day(77), opened_on: day(-8), days_after_opening: 10 }),
     item("Peas", { quantity: 2, unit: "bag", category: "frozen", location: "freezer", expiry: day(200) }),
     item("Chicken souvlaki", { quantity: 6, unit: "pcs", category: "frozen", location: "freezer", expiry: day(3) }),
     item("Vanilla ice cream", { quantity: 1, unit: "box", category: "frozen", location: "freezer" }),
@@ -169,10 +170,36 @@
         if (!lowNow(it) && it.shopping?.auto) it.shopping = null;
         push(); return it;
       }
+      if (msg.type === "stock_pulse/item/lookup") {
+        // Known in the inventory, found in Open Food Facts, or unknown: like the integration answers.
+        const code = msg.barcode.replace(/[\s-]/g, "");
+        const known = items.find((i) => (i.barcodes || []).includes(code));
+        if (known) return { barcode: code, item_id: known.id, product: null, source: null, error: null };
+        if (code === "5208069003184") return { barcode: code, item_id: null, source: "openfoodfacts", error: null,
+          product: { name: "Βιτάμ Soft light", category: "food", notes: "225 g", image: null } };
+        return { barcode: code, item_id: null, product: null, source: null, error: null };
+      }
       if (msg.type === "stock_pulse/item/shop") { const it = find(); it.shopping = msg.on ? { uid: "m", summary: it.name, amount: 1, auto: false } : null; push(); return it; }
       throw { code: "unknown_command", message: "Unknown command" };
     },
   };
+  // ?native=1: the companion app's own scanner. Answers a scan with the Open Food Facts example barcode,
+  // and checks that the frontend's own command handler is put back and still receives the command.
+  if (params.has("native")) {
+    const frontendHandler = (msg) => { log("frontend handler got " + msg.command); return true; };
+    const bus = {
+      config: { hasBarCodeScanner: 1 }, _commandHandler: frontendHandler,
+      addCommandHandler(h) { this._commandHandler = h; },
+      fireMessage(msg) {
+        log("to app: " + JSON.stringify(msg));
+        if (msg.type === "bar_code/scan") setTimeout(() => {
+          this._commandHandler({ type: "command", id: 7, command: "bar_code/scan_result", payload: { rawValue: params.get("native") === "qr" ? "https://example.com" : "5208069003184", format: "ean_13" } });
+          log("handler restored: " + (this._commandHandler === frontendHandler));
+        }, 300);
+      },
+    };
+    hass.auth = { external: bus };
+  }
   window.hass = hass;
   await import("../custom_components/stock_pulse/frontend/stock-pulse-card.js");
   const configs = [
@@ -195,6 +222,16 @@
   if (params.get("sheet")) {
     const card = grid.querySelector("stock-pulse-card");
     setTimeout(() => card._openEdit(items.find((i) => i.name === params.get("sheet"))), 200);
+  }
+  // ?scan=<digits> acts as if that barcode was scanned on the first card (known: 5202576461208 Feta,
+  // found online: 5208069003184, anything else: unknown). ?scanner=1 opens the scanner itself.
+  if (params.get("scan")) {
+    const card = grid.querySelector("stock-pulse-card");
+    setTimeout(() => card._onScanned(params.get("scan")), 200);
+  }
+  if (params.has("scanner")) {
+    const card = grid.querySelector("stock-pulse-card");
+    setTimeout(() => card._openScan(), 200);
   }
   if (params.has("missing")) {
     const wrap = document.createElement("div");

@@ -86,6 +86,9 @@
     },
     "no_shopping_list": {
       "message": "This inventory has no shopping list. Pick one in the integration's options."
+    },
+    "not_a_barcode": {
+      "message": "“{barcode}” is not a barcode."
     }
   },
   "selector": {
@@ -190,6 +193,22 @@
         "icon": {
           "name": "Icon",
           "description": "Icon shown in the card."
+        },
+        "barcode": {
+          "name": "Barcode",
+          "description": "One barcode to add to the item (EAN or UPC digits). With add item, a known barcode tops up the item that has it."
+        },
+        "barcodes": {
+          "name": "Barcodes",
+          "description": "All barcodes of the item; replaces the list."
+        },
+        "opened_on": {
+          "name": "Opened on",
+          "description": "When the pack in use was opened. Cleared when the item runs out and is restocked."
+        },
+        "days_after_opening": {
+          "name": "Keeps after opening",
+          "description": "How many days it keeps once open (“keeps 10 days in the fridge after opening”). With an opened-on date, expiry counts from whichever comes first."
         }
       }
     },
@@ -248,6 +267,22 @@
         "item": {
           "name": "Item",
           "description": "Name or id of the item."
+        },
+        "barcode": {
+          "name": "Barcode",
+          "description": "One barcode to add to the item (EAN or UPC digits). With add item, a known barcode tops up the item that has it."
+        },
+        "barcodes": {
+          "name": "Barcodes",
+          "description": "All barcodes of the item; replaces the list."
+        },
+        "opened_on": {
+          "name": "Opened on",
+          "description": "When the pack in use was opened. Cleared when the item runs out and is restocked."
+        },
+        "days_after_opening": {
+          "name": "Keeps after opening",
+          "description": "How many days it keeps once open (“keeps 10 days in the fridge after opening”). With an opened-on date, expiry counts from whichever comes first."
         }
       }
     },

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import aiohttp
+import voluptuous as vol
+
 from pytest_homeassistant_custom_component.common import MockConfigEntry, async_fire_time_changed
 import pytest
 
@@ -301,3 +304,119 @@ async def test_actions_are_registered_and_translated(hass, inventory):
         strings = json.loads((folder / "translations" / f"{lang}.json").read_text())["services"]
         for name, spec in services.items():
             assert set(spec["fields"]) == set(strings[name]["fields"]), (lang, name)
+
+
+OFF = "https://world.openfoodfacts.org/api/v2/product/{}"
+OBF = "https://world.openbeautyfacts.org/api/v2/product/{}"
+OPF = "https://world.openproductsfacts.org/api/v2/product/{}"
+
+
+async def ws_call(client, msg):
+    await client.send_json_auto_id(msg)
+    reply = await client.receive_json()
+    while reply["type"] == "event":
+        reply = await client.receive_json()
+    return reply
+
+
+async def test_barcodes_on_items_and_actions(hass, inventory):
+    gouda = await add(hass, name="Gouda", quantity=1, barcode="5202576461208")
+    assert gouda["barcodes"] == ["5202576461208"]
+
+    # The same pack again, under another name: tops up the item that has the barcode.
+    again = await add(hass, name="Τυρί gouda φέτες", quantity=1, barcode="5202576461208")
+    assert again["id"] == gouda["id"] and again["quantity"] == 2 and again["name"] == "Gouda"
+
+    # A barcode works wherever an item is named, e.g. from a handheld scanner automation.
+    await adjust(hass, "5202576461208", -1)
+    assert manager(inventory).inventory.items[gouda["id"]]["quantity"] == 1
+
+    # `barcode` adds to the list; a UPC-A is stored as its EAN form.
+    resp = await hass.services.async_call(
+        DOMAIN, "update_item", {"item": "Gouda", "barcode": "036000291452"}, blocking=True, return_response=True
+    )
+    assert resp["item"]["barcodes"] == ["5202576461208", "0036000291452"]
+
+    # A barcode belongs to one item: giving it to another takes it away from the first.
+    milk = await add(hass, name="Milk", barcodes=["0036000291452"])
+    assert milk["barcodes"] == ["0036000291452"]
+    assert manager(inventory).inventory.items[gouda["id"]]["barcodes"] == ["5202576461208"]
+
+    # Items stored before barcodes existed load without the field and still work.
+    del manager(inventory).inventory.items[milk["id"]]["barcodes"]
+    assert manager(inventory).inventory.find_barcode("0036000291452") is None
+
+    with pytest.raises(vol.Invalid):
+        await add(hass, name="Bread", barcode="not a code")
+
+
+async def test_lookup_known_item_needs_no_internet(hass, inventory, hass_ws_client, aioclient_mock):
+    item = await add(hass, name="Gouda", barcodes=["5202576461208"])
+    client = await hass_ws_client(hass)
+    reply = await ws_call(client, {"type": f"{DOMAIN}/item/lookup", "barcode": "520 2576 461208"})
+    assert reply["success"], reply
+    assert reply["result"] == {"barcode": "5202576461208", "item_id": item["id"], "product": None, "source": None, "error": None}
+    assert aioclient_mock.call_count == 0
+
+
+async def test_lookup_product_found_and_cached(hass, inventory, hass_ws_client, aioclient_mock):
+    code = "5208069003184"
+    aioclient_mock.get(
+        OFF.format(code),
+        json={"status": 1, "product": {"product_name": "Soft light", "brands": "Βιτάμ", "quantity": "225 g"}},
+    )
+    client = await hass_ws_client(hass)
+    reply = await ws_call(client, {"type": f"{DOMAIN}/item/lookup", "barcode": code})
+    assert reply["result"]["product"] == {"name": "Soft light", "category": "food", "notes": "Βιτάμ · 225 g", "image": None}
+    assert reply["result"]["source"] == "openfoodfacts" and reply["result"]["item_id"] is None
+    # The request says who is asking, as Open Food Facts asks.
+    assert "StockPulse/" in aioclient_mock.mock_calls[0][3]["User-Agent"]
+    await ws_call(client, {"type": f"{DOMAIN}/item/lookup", "barcode": code})
+    assert aioclient_mock.call_count == 1
+
+
+async def test_lookup_falls_through_the_databases(hass, inventory, hass_ws_client, aioclient_mock):
+    code = "5201234567890"
+    aioclient_mock.get(OFF.format(code), status=404, json={"status": 0})
+    aioclient_mock.get(OBF.format(code), json={"status": 1, "product": {"product_name": "Shampoo"}})
+    client = await hass_ws_client(hass)
+    reply = await ws_call(client, {"type": f"{DOMAIN}/item/lookup", "barcode": code})
+    assert reply["result"]["source"] == "openbeautyfacts"
+    assert reply["result"]["product"]["category"] == "toiletries"
+
+
+async def test_lookup_not_found_and_offline(hass, inventory, hass_ws_client, aioclient_mock):
+    missing, offline = "5200000000001", "5200000000002"
+    for url in (OFF, OBF, OPF):
+        aioclient_mock.get(url.format(missing), status=404, json={"status": 0})
+        aioclient_mock.get(url.format(offline), exc=aiohttp.ClientError("down"))
+    client = await hass_ws_client(hass)
+    reply = await ws_call(client, {"type": f"{DOMAIN}/item/lookup", "barcode": missing})
+    assert reply["result"]["product"] is None and reply["result"]["error"] is None
+    reply = await ws_call(client, {"type": f"{DOMAIN}/item/lookup", "barcode": offline})
+    assert reply["success"] and reply["result"]["product"] is None and reply["result"]["error"]
+    reply = await ws_call(client, {"type": f"{DOMAIN}/item/lookup", "barcode": "Milk"})
+    assert not reply["success"]
+
+
+async def test_opened_pack(hass, inventory):
+    today = dt_util.now().date()
+    opened = (today - timedelta(days=8)).isoformat()
+    turkey = await add(hass, name="Smoked turkey", quantity=1, expiry=(today + timedelta(days=77)).isoformat(),
+                       opened_on=opened, days_after_opening=10)
+    assert turkey["opened_on"] == opened and turkey["days_after_opening"] == 10
+    await settle(hass)
+    soon = hass.states.get("sensor.home_expiring_soon")
+    assert soon.state == "1"
+    assert soon.attributes["items"][0]["use_by"] == (today + timedelta(days=2)).isoformat()
+
+    # Buying more while it's open keeps the open pack's date.
+    await adjust(hass, "Smoked turkey", 1)
+    assert manager(inventory).inventory.items[turkey["id"]]["opened_on"] == opened
+    # Ran out and restocked: the new packs are sealed.
+    await adjust(hass, "Smoked turkey", -2)
+    await adjust(hass, "Smoked turkey", 1)
+    assert manager(inventory).inventory.items[turkey["id"]]["opened_on"] is None
+
+    with pytest.raises(vol.Invalid):
+        await add(hass, name="Milk", days_after_opening=2.5)

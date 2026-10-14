@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🎴 Something about the Pulse dashboard cards (Area, Home, Tile, Scene)
+    url: https://github.com/zacharatos/pulse-cards/issues
+    about: The cards live in their own repository.
+  - name: 🎨 Something about the Pulse themes
+    url: https://github.com/zacharatos/pulse-theme/issues
+    about: The themes live in their own repository.

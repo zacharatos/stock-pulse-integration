@@ -516,6 +516,58 @@ export const dialogStyles = css`
   .bought:active { transform: scale(0.96); }
   .bought .amount { color: var(--secondary-text-color); font-variant-numeric: tabular-nums; }
   .bought[disabled] { opacity: 0.5; cursor: default; transform: none; }
+  /* Opened and Bought side by side: one pushes to the end, the other sits next to it. */
+  .bought + .bought { margin-left: 0; }
+  /* Scanner: the camera in a calm frame, with a guide where the barcode goes. */
+  .scan-view {
+    position: relative;
+    aspect-ratio: 4 / 3;
+    border-radius: var(--sp-control-radius, 12px);
+    overflow: hidden;
+    background: #000;
+  }
+  .scan-view video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .scan-view .guide {
+    position: absolute;
+    inset: 32% 10%;
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    border-radius: 12px;
+    box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.25);
+    pointer-events: none;
+  }
+  .scan-view .state {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 16px;
+    text-align: center;
+    color: #fff;
+    font-size: 14px;
+    background: rgba(0, 0, 0, 0.55);
+    --mdc-icon-size: 20px;
+  }
+  .scan-hint { margin: 12px 2px 0; font-size: 13px; color: var(--secondary-text-color); }
+  .scan-manual { display: flex; gap: 8px; margin-top: 12px; }
+  .scan-manual input {
+    flex: 1;
+    min-width: 0;
+    height: 40px;
+    padding: 0 14px;
+    box-sizing: border-box;
+    border: none;
+    border-radius: 20px;
+    background: var(--sp-neutral-bg);
+    color: var(--primary-text-color);
+    font: inherit;
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+  }
+  .scan-manual input:focus-visible { outline: 2px solid var(--sp-accent); outline-offset: 0; }
+  .d-note { margin: -4px 2px 16px; font-size: 13px; line-height: 18px; color: var(--secondary-text-color); }
+  .d-head .badge img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
   .d-error {
     margin-top: 8px;
     color: var(--error-color, var(--sp-bad));

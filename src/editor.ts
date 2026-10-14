@@ -15,6 +15,7 @@ const DEFAULTS: Partial<StockPulseCardConfig> = {
   sort: "name",
   show_search: true,
   show_filters: true,
+  show_scan: true,
   hide_out_of_stock: false,
   compact: false,
 };
@@ -107,6 +108,7 @@ export class StockPulseCardEditor extends LitElement {
         schema: [
           { name: "show_search", selector: { boolean: {} } },
           { name: "show_filters", selector: { boolean: {} } },
+          { name: "show_scan", selector: { boolean: {} } },
           { name: "hide_out_of_stock", selector: { boolean: {} } },
           { name: "compact", selector: { boolean: {} } },
         ],

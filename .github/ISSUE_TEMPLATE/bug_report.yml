@@ -1,0 +1,109 @@
+name: 🐞 Something doesn't work
+description: The inventory, the shopping-list loop or the card does the wrong thing, or doesn't load.
+title: "Short description of what goes wrong"
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Every home and every shopping-list app is a bit different, and reports like this are what make Stock Pulse work in more of them.
+        **Diagnostics help a lot:** Settings → Devices & services → Stock Pulse → ⋮ → Download diagnostics (when available). Hide names you'd rather not share.
+
+  - type: dropdown
+    id: part
+    attributes:
+      label: Where does it go wrong?
+      multiple: true
+      options:
+        - The shopping list (items not added, not removed, restocked twice…)
+        - Quantities, dates or sensors
+        - Actions or events (automations, scripts, voice)
+        - The card
+        - The card's edit sheet
+        - The visual editor
+        - Setup or options (config flow)
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens?
+      description: What you see. A screenshot or a short screen recording helps.
+      placeholder: "I ticked off 'Milk (2 bottles)' on my phone, and the milk went up by 4."
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect instead?
+      placeholder: "It should go up by 2, once."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can I make it happen?
+      placeholder: |
+        1. An item with threshold 1 and buy amount 2
+        2. Lower it to 1, so it goes on the list
+        3. Tick it off in the companion app
+    validations:
+      required: true
+
+  - type: input
+    id: todo
+    attributes:
+      label: Which shopping list?
+      description: The to-do integration the inventory uses.
+      placeholder: "Shopping list (built-in) / Local to-do / Todoist / Google Tasks"
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: The card's YAML (if it's about the card)
+      render: yaml
+
+  - type: input
+    id: version
+    attributes:
+      label: Stock Pulse version
+      description: HACS shows it, or the browser console as `STOCK-PULSE-CARD vX.Y.Z`.
+      placeholder: "v1.2.0"
+    validations:
+      required: true
+
+  - type: input
+    id: ha
+    attributes:
+      label: Home Assistant version
+      placeholder: "2026.10.1"
+    validations:
+      required: true
+
+  - type: input
+    id: where
+    attributes:
+      label: Browser or app, and device (if it's about the card)
+      placeholder: "Companion app 2026.10 on Android, phone"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs (if any)
+      description: Settings → System → Logs, lines that mention `stock_pulse`; or F12 → Console for the card.
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Quick checks
+      options:
+        - label: I'm on the latest Stock Pulse release, restarted Home Assistant after updating, and reloaded the browser.
+          required: true
+        - label: I searched the open issues and this isn't reported yet.
+          required: true

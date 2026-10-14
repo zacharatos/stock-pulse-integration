@@ -1,0 +1,56 @@
+name: 🎨 Looks or feels off
+description: It works, but something on the card looks wrong, cramped, or out of place next to the other cards.
+title: "[card] What looks or feels off"
+labels: [ui, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The card is meant to be calm: little colour, colour only for what needs attention, and at home next to Home Assistant's own cards. If something breaks that in your home, show it here.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What looks or feels off?
+      description: A screenshot is worth a lot. Hide names you'd rather not share.
+    validations:
+      required: true
+
+  - type: textarea
+    id: wanted
+    attributes:
+      label: How should it look or behave?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: theme
+    attributes:
+      label: Theme
+      options:
+        - Home Assistant default (light)
+        - Home Assistant default (dark)
+        - Pulse, Pulse Glass or Pulse Tonal
+        - Another theme
+    validations:
+      required: true
+
+  - type: input
+    id: where
+    attributes:
+      label: Browser or app, and device
+      placeholder: "Safari on iPad / Companion app on Android, phone"
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: The card's YAML (optional)
+      render: yaml
+
+  - type: input
+    id: versions
+    attributes:
+      label: Stock Pulse and Home Assistant versions
+      placeholder: "Stock Pulse v1.2.0, HA 2026.10.1"

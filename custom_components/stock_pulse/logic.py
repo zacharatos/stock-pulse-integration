@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 import math
 import re
 from typing import Any
@@ -115,6 +115,61 @@ def norm_name(name: str) -> str:
     return " ".join((name or "").casefold().split())
 
 
+def norm_barcode(value: Any) -> str | None:
+    """The digits of a product barcode, or None when it isn't one.
+
+    Spaces and dashes are dropped. A 12-digit UPC-A becomes its 13-digit EAN form (a leading 0),
+    so the same pack matches whether the camera reports UPC-A or EAN-13.
+    """
+    text = re.sub(r"[\s-]", "", str(value or ""))
+    if not text.isdigit() or not 6 <= len(text) <= 14:
+        return None
+    return "0" + text if len(text) == 12 else text
+
+
+# Open Food Facts category tags -> our built-in categories. The first match wins.
+_CATEGORY_TAGS: tuple[tuple[str, str], ...] = (
+    ("en:frozen-foods", "frozen"),
+    ("en:beverages", "drinks"),
+    ("en:baby-foods", "baby"),
+    ("en:pet-food", "pets"),
+)
+# Which database answered says what kind of thing it is, when the tags don't.
+_SOURCE_CATEGORY = {"openbeautyfacts": "toiletries", "openproductsfacts": "household", "openpetfoodfacts": "pets"}
+
+
+def product_suggestion(product: dict[str, Any], source: str, language: str = "en") -> dict[str, Any] | None:
+    """Item fields to prefill from an Open Food Facts product, or None when it has no usable name.
+
+    Only fills what the database says for sure: the name (in the HA language when there is one),
+    a category, and brand + pack size as a note. Quantity, unit and dates stay with the person.
+    """
+    lang = (language or "en").split("-")[0]
+    name = next(
+        (
+            str(product[key]).strip()
+            for key in (f"product_name_{lang}", "product_name", "product_name_en", "generic_name")
+            if str(product.get(key) or "").strip()
+        ),
+        None,
+    )
+    if not name:
+        return None
+    category = _SOURCE_CATEGORY.get(source)
+    if source == "openfoodfacts":
+        tags = product.get("categories_tags") or []
+        category = next((cat for tag, cat in _CATEGORY_TAGS if tag in tags), "food")
+    brand = str(product.get("brands") or "").split(",")[0].strip()
+    size = str(product.get("quantity") or "").strip()
+    note = " · ".join(part for part in (brand if brand and brand.casefold() not in name.casefold() else "", size) if part)
+    return {
+        "name": name[:100],
+        "category": category,
+        "notes": note or None,
+        "image": product.get("image_front_small_url") or product.get("image_small_url") or None,
+    }
+
+
 def days_until(expiry: str | None, today: date) -> int | None:
     if not expiry:
         return None
@@ -124,9 +179,31 @@ def days_until(expiry: str | None, today: date) -> int | None:
         return None
 
 
+def _iso(value: str | None) -> date | None:
+    try:
+        return date.fromisoformat(value[:10]) if value else None
+    except ValueError:
+        return None
+
+
+def effective_expiry(item: dict[str, Any]) -> tuple[str | None, bool]:
+    """The date that counts, and whether it comes from opening the pack.
+
+    An opened pack that keeps N days is good until opened_on + N, or its best-before date if that is
+    earlier: the turkey that keeps 10 days once open stops waiting for December.
+    """
+    best_before = _iso(item.get("expiry"))
+    opened = _iso(item.get("opened_on"))
+    keeps = item.get("days_after_opening")
+    by_opening = opened + timedelta(days=int(keeps)) if opened and keeps else None
+    if by_opening and (best_before is None or by_opening < best_before):
+        return by_opening.isoformat(), True
+    return (best_before.isoformat() if best_before else None), False
+
+
 def expiry_state(item: dict[str, Any], today: date, soon_days: int) -> str | None:
-    """None, "soon" (within soon_days, today included) or "expired"."""
-    days = days_until(item.get("expiry"), today)
+    """None, "soon" (within soon_days, today included) or "expired", by the date that counts."""
+    days = days_until(effective_expiry(item)[0], today)
     if days is None or is_out(item):
         return None
     if days < 0:
