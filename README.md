@@ -7,7 +7,7 @@ A household inventory for Home Assistant, with a shopping list that fills itself
 - **Two packs with different dates?** Turn on **Batches** in the options and an item can hold several best-before dates: the oldest is used first, and *Expiring soon* follows it.
 - Give an item a **threshold** and it goes on your shopping list by itself when stock drops to it.
 - **Tick it off the shopping list** when you buy it and the bought amount is added back to the inventory.
-- A card that looks at home next to the built-in cards: search and quick add, filter chips, grouping, +/- steppers, and an edit sheet. English and Greek.
+- A card that looks at home next to the built-in cards: search and quick add, filter chips (status, plus categories and/or locations), grouping, +/- steppers, and an edit sheet. English and Greek.
 - **Bought it on the way home?** One tap on **Bought** in an item's sheet adds the amount you'd buy (or the amount on its shopping-list entry) and takes it off the list.
 - **Scan a barcode** to put the shopping away: a pack you already have opens with one more of it; a new one opens the add sheet with its name filled in from [Open Food Facts](https://world.openfoodfacts.org). The barcode stays with the item, so the next scan needs no internet.
 
