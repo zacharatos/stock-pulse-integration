@@ -124,6 +124,7 @@ export interface LookupResult {
 
 export type GroupBy = "category" | "location" | "none";
 export type SortBy = "name" | "quantity" | "expiry";
+export type FilterBy = "location" | "category" | "both" | "none";
 
 export interface StockPulseCardConfig {
   type: string;
@@ -136,6 +137,8 @@ export interface StockPulseCardConfig {
   group_by?: GroupBy;
   /** Default "name". */
   sort?: SortBy;
+  /** Value chips after the status chips. Default "location". */
+  filter_by?: FilterBy;
   /** Only show items in these locations (keys or your own names). */
   locations?: string[];
   /** Only show items in these categories. */

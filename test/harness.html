@@ -223,6 +223,7 @@
     ["Freezer only, sorted by date", { type: "custom:stock-pulse-card", title: "Freezer", icon: "mdi:snowflake", locations: ["freezer"], group_by: "none", sort: "expiry" }],
     ["Compact, by location, max height", { type: "custom:stock-pulse-card", compact: true, group_by: "location", show_search: false, max_height: "420px" }],
     ["Nothing to act on", { type: "custom:stock-pulse-card", title: "Household", icon: "mdi:home-variant-outline", categories: ["household"], group_by: "none", show_search: false }],
+    ["Category chips", { type: "custom:stock-pulse-card", filter_by: "category" }],
   ];
   const grid = document.getElementById("grid");
   for (const [cap, config] of configs) {

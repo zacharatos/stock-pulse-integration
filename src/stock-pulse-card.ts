@@ -8,6 +8,7 @@ import type { HomeAssistant } from "./types";
 import {
   applyFilter,
   boughtAmount,
+  chipValues,
   diffFields,
   effectiveExpiry,
   fmtQty,
@@ -35,9 +36,10 @@ import { cardStyles, dialogStyles } from "./styles";
 import { defineElement } from "./register";
 import "./editor";
 
-export const VERSION = "1.3.1";
+export const VERSION = "1.4.0";
 const WS = "stock_pulse";
 const GROUP_BY = ["category", "location", "none"];
+const FILTER_BY = ["location", "category", "both", "none"];
 const SORT = ["name", "quantity", "expiry"];
 
 declare global {
@@ -133,6 +135,7 @@ interface View {
   shown: number;
   counts: { items: number; low: number; expiring: number; list: number };
   locations: string[];
+  categories: string[];
   exact: boolean;
 }
 
@@ -189,12 +192,23 @@ export class StockPulseCard extends LitElement {
     if (config.group_by && !GROUP_BY.includes(config.group_by)) {
       throw new Error(`group_by must be one of ${GROUP_BY.join(", ")}`);
     }
+    if (config.filter_by && !FILTER_BY.includes(config.filter_by)) {
+      throw new Error(`filter_by must be one of ${FILTER_BY.join(", ")}`);
+    }
     if (config.sort && !SORT.includes(config.sort)) throw new Error(`sort must be one of ${SORT.join(", ")}`);
     for (const key of ["locations", "categories"] as const) {
       if (config[key] !== undefined && !Array.isArray(config[key])) throw new Error(`${key} must be a list`);
     }
     const inventoryChanged = this._config && (this._config.inventory ?? "") !== (config.inventory ?? "");
     this._config = config;
+    // A value chip that this config no longer shows can't be tapped off, so drop its filter.
+    const filterBy = config.filter_by ?? "location";
+    if (
+      (this._filter.kind === "location" && filterBy !== "location" && filterBy !== "both") ||
+      (this._filter.kind === "category" && filterBy !== "category" && filterBy !== "both")
+    ) {
+      this._filter = { kind: "all" };
+    }
     this.compact = !!config.compact;
     if (inventoryChanged) this._resubscribe();
   }
@@ -332,6 +346,7 @@ export class StockPulseCard extends LitElement {
         shown: 0,
         counts: { items: 0, low: 0, expiring: 0, list: 0 },
         locations: [],
+        categories: [],
         exact: false,
       };
     }
@@ -358,6 +373,7 @@ export class StockPulseCard extends LitElement {
       shown: sorted.length,
       counts,
       locations: presentValues(inScope, "location", snap.locations),
+      categories: presentValues(inScope, "category", snap.categories),
       exact: !!q && snap.items.some((i) => norm(i.name) === q),
     };
   }
@@ -479,8 +495,15 @@ export class StockPulseCard extends LitElement {
     if (snap.settings.shopping_list && (view.counts.list || this._filter.kind === "list")) {
       chips.push({ filter: { kind: "list" }, label: this._t("chip_list"), count: view.counts.list, icon: "mdi:cart-outline" });
     }
-    if (view.locations.length > 1) {
-      for (const loc of view.locations) {
+    // Value chips follow the status chips, in the order of filter_by (categories first when both).
+    const filterBy = this._config!.filter_by ?? "location";
+    if (filterBy === "category" || filterBy === "both") {
+      for (const cat of chipValues(view.categories, this._filter, "category")) {
+        chips.push({ filter: { kind: "category", value: cat }, label: labelFor(this.hass, "cat", cat) });
+      }
+    }
+    if (filterBy === "location" || filterBy === "both") {
+      for (const loc of chipValues(view.locations, this._filter, "location")) {
         chips.push({ filter: { kind: "location", value: loc }, label: labelFor(this.hass, "loc", loc) });
       }
     }
@@ -696,7 +719,8 @@ export class StockPulseCard extends LitElement {
     // Start from what the card is looking at: a freezer card adds to the freezer.
     if (this._filter.kind === "location") data.location = this._filter.value;
     else if (config.locations?.length === 1) data.location = config.locations[0];
-    if (config.categories?.length === 1) data.category = config.categories[0];
+    if (this._filter.kind === "category") data.category = this._filter.value;
+    else if (config.categories?.length === 1) data.category = config.categories[0];
     // What the product databases said wins over the card's scope only where they say something.
     for (const [key, value] of Object.entries(extra)) if (value != null && value !== "") (data as Record<string, unknown>)[key] = value;
     await loadHaElements();

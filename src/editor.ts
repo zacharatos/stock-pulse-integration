@@ -13,6 +13,7 @@ const CATEGORIES = ["food", "drinks", "frozen", "cleaning", "toiletries", "house
 const DEFAULTS: Partial<StockPulseCardConfig> = {
   group_by: "category",
   sort: "name",
+  filter_by: "location",
   show_search: true,
   show_filters: true,
   show_scan: true,
@@ -93,6 +94,15 @@ export class StockPulseCardEditor extends LitElement {
             },
           },
         ],
+      },
+      {
+        name: "filter_by",
+        selector: {
+          select: {
+            mode: "dropdown",
+            options: ["location", "category", "both", "none"].map((v) => ({ value: v, label: t(`filter_by_${v}`) })),
+          },
+        },
       },
       {
         name: "locations",

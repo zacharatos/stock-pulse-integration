@@ -5,6 +5,7 @@ import {
   applyFilter,
   boughtAmount,
   buyAmount,
+  chipValues,
   daysBetween,
   diffFields,
   effectiveExpiry,
@@ -68,6 +69,45 @@ test("filters", () => {
   assert.equal(ids(applyFilter(items, { kind: "all" }, "  PEA ", statuses, false)), "b");
   // A search finds an empty item even when those are hidden.
   assert.equal(ids(applyFilter(items, { kind: "all" }, "pasta", statuses, true)), "d");
+});
+
+test("category chips filter by category, with search, hiding what ran out", () => {
+  const ids = (list) => list.map((i) => i.id).sort().join("");
+  const food = { kind: "category", value: "food" };
+  assert.equal(ids(applyFilter(items, food, "", statuses, false)), "cd");
+  // Like the plain list, a category or location chip hides what ran out ...
+  assert.equal(ids(applyFilter(items, food, "", statuses, true)), "c");
+  assert.equal(ids(applyFilter(items, { kind: "location", value: "pantry" }, "", statuses, true)), "");
+  assert.equal(ids(applyFilter(items, { kind: "location", value: "fridge" }, "", statuses, true)), "ce");
+  // ... unless you are searching, and the search narrows within the chip.
+  assert.equal(ids(applyFilter(items, food, "pasta", statuses, true)), "d");
+  assert.equal(ids(applyFilter(items, food, "ham", statuses, true)), "c");
+  // Names match without regard to case or spaces around them; your own categories work too.
+  assert.equal(ids(applyFilter(items, { kind: "category", value: " ferments " }, "", statuses, false)), "e");
+  // An item without a category never matches a category chip.
+  const loose = [...items, item("f", "Mystery")];
+  const looseStatuses = new Map(loose.map((i) => [i.id, itemStatus(i, TODAY, 3)]));
+  assert.equal(ids(applyFilter(loose, food, "", looseStatuses, false)), "cd");
+  assert.equal(ids(applyFilter(loose, { kind: "all" }, "", looseStatuses, false)), "abcdef");
+});
+
+test("value chips: two or more values, and the selected one stays", () => {
+  const all = { kind: "all" };
+  assert.deepEqual(chipValues(["food", "frozen"], all, "category"), ["food", "frozen"]);
+  // One value would filter nothing.
+  assert.deepEqual(chipValues(["food"], all, "category"), []);
+  assert.deepEqual(chipValues([], all, "location"), []);
+  // The selected value stays when its items are gone, so it can be tapped off.
+  assert.deepEqual(chipValues(["food", "frozen"], { kind: "category", value: "baby" }, "category"), ["food", "frozen", "baby"]);
+  assert.deepEqual(chipValues([], { kind: "location", value: "fridge" }, "location"), ["fridge"]);
+  assert.deepEqual(chipValues(["food"], { kind: "category", value: "food" }, "category"), ["food"]);
+  // A selected chip of the other kind is not added.
+  assert.deepEqual(chipValues(["pantry", "fridge"], { kind: "category", value: "baby" }, "location"), ["pantry", "fridge"]);
+  // Built-in order first, then your own A to Z.
+  assert.deepEqual(
+    chipValues(presentValues(items, "category", ["food", "drinks", "frozen", "cleaning", "toiletries"]), all, "category"),
+    ["food", "frozen", "toiletries", "Ferments"]
+  );
 });
 
 test("scope", () => {

@@ -199,9 +199,9 @@ export function applyFilter(
       case "list":
         return s.onList;
       case "location":
-        return norm(item.location) === norm(filter.value);
+        return norm(item.location) === norm(filter.value) && !(hideOut && s.out && !query);
       case "category":
-        return norm(item.category) === norm(filter.value);
+        return norm(item.category) === norm(filter.value) && !(hideOut && s.out && !query);
       default:
         // "Out of stock" is hidden on the plain list only; the status filters still find it.
         return !(hideOut && s.out && !query);
@@ -262,6 +262,16 @@ export function presentValues(items: Item[], field: "location" | "category", bui
   const known = builtIn.filter((k) => seen.has(k));
   const custom = [...seen].filter((v) => !builtIn.includes(v)).sort((a, b) => a.localeCompare(b));
   return [...known, ...custom];
+}
+
+/**
+ * The value chips of one kind: nothing unless two or more values are present (one chip would
+ * filter nothing), and the selected value stays even when its items are gone, so it can be tapped off.
+ */
+export function chipValues(present: string[], filter: Filter, kind: "location" | "category"): string[] {
+  const values = present.length > 1 ? [...present] : [];
+  if (filter.kind === kind && !values.includes(filter.value)) values.push(filter.value);
+  return values;
 }
 
 /** Only the fields that changed, with "" turned into null. */

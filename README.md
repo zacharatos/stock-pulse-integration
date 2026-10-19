@@ -74,10 +74,11 @@ That is a complete config. Everything below is optional and available in the vis
 | `icon` | `mdi:package-variant-closed` | Card icon. |
 | `group_by` | `category` | `category`, `location` or `none`. |
 | `sort` | `name` | `name`, `quantity` (lowest first) or `expiry` (soonest first). |
+| `filter_by` | `location` | Which chips follow the status chips: `location`, `category`, `both` (categories, then locations) or `none`. |
 | `locations` | all | Only show these locations, e.g. `[freezer]` for a freezer card. New items get that location. |
 | `categories` | all | Only show these categories. |
 | `show_search` | `true` | The search box, which doubles as quick add: type a name and press Enter. |
-| `show_filters` | `true` | Chips for All, Low, Expiring, On list and each location. |
+| `show_filters` | `true` | Chips for All, Low, Expiring, On list, and the values chosen by `filter_by`. |
 | `show_scan` | `true` | The barcode button in the header (shown only where the camera can scan; see below). |
 | `hide_out_of_stock` | `false` | Hide items at 0 (the Low chip and search still find them). |
 | `compact` | `false` | Shorter rows; only urgent details are shown under a name. |
@@ -94,7 +95,14 @@ group_by: none
 sort: expiry
 ```
 
-Tap a filter chip again to go back to everything. In an item's sheet, **Bought** appears when the item is low, out, or on the shopping list: it adds the amount on the list entry (or the buy amount) in one go, and the entry disappears from the list, exactly as if you had ticked it off.
+Category chips next to the status chips:
+
+```yaml
+type: custom:stock-pulse-card
+filter_by: category
+```
+
+A category or location chip shows once two or more are in use, in the built-in order (your own names after, A to Z). Tap a filter chip again to go back to everything; search narrows within the chip, and with `hide_out_of_stock` the chip hides what ran out, like the plain list. With a category chip selected, a new item starts in that category. In an item's sheet, **Bought** appears when the item is low, out, or on the shopping list: it adds the amount on the list entry (or the buy amount) in one go, and the entry disappears from the list, exactly as if you had ticked it off.
 
 ## Opened packs
 
