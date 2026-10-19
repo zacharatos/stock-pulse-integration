@@ -18,6 +18,7 @@ import {
   looksLikeBarcode,
   needsStock,
   norm,
+  openPackFinished,
   parseBarcodes,
   presentValues,
   scoped,
@@ -34,7 +35,7 @@ import { cardStyles, dialogStyles } from "./styles";
 import { defineElement } from "./register";
 import "./editor";
 
-export const VERSION = "1.3.0";
+export const VERSION = "1.3.1";
 const WS = "stock_pulse";
 const GROUP_BY = ["category", "location", "none"];
 const SORT = ["name", "quantity", "expiry"];
@@ -1175,7 +1176,12 @@ export class StockPulseCard extends LitElement {
     const quantity = Math.max(0, Math.round((item.quantity + delta) * 1000) / 1000);
     if (quantity === item.quantity) return;
     // Show the new count straight away; the integration's update follows.
-    this._snap = { ...snap, items: snap.items.map((i) => (i.id === item.id ? { ...i, quantity } : i)) };
+    // Using up the open pack drops its Opened date, as the integration does.
+    const finished = openPackFinished(item, item.quantity, quantity);
+    this._snap = {
+      ...snap,
+      items: snap.items.map((i) => (i.id === item.id ? { ...i, quantity, ...(finished ? { opened_on: null } : {}) } : i)),
+    };
     try {
       await this._call({ type: `${WS}/item/adjust`, item_id: item.id, amount: quantity - item.quantity });
     } catch (err) {

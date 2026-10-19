@@ -302,7 +302,7 @@
     },
     "adjust_quantity": {
       "name": "Adjust quantity",
-      "description": "Adds to or takes from an item's quantity, for example -1 when you open a pack.",
+      "description": "Adds to or takes from an item's quantity, for example -1 when you finish a pack.",
       "fields": {
         "inventory": {
           "name": "Inventory",

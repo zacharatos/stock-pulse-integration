@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Final
 
 DOMAIN: Final = "stock_pulse"
-VERSION: Final = "1.3.0"
+VERSION: Final = "1.3.1"
 
 STORAGE_VERSION: Final = 1
 

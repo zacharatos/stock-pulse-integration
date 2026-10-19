@@ -211,3 +211,53 @@ def expiry_state(item: dict[str, Any], today: date, soon_days: int) -> str | Non
     if days <= soon_days:
         return "soon"
     return None
+
+
+# Units that measure an amount instead of counting packs.
+MEASURED_UNITS = frozenset({"kg", "g", "l", "ml"})
+
+
+def pack_size(item: dict[str, Any]) -> float | None:
+    """How much one pack holds, in the item's unit.
+
+    Counted units (pcs, pack, roll, a custom unit...) are packs of 1. A weighed or measured item has
+    no pack size of its own, so its buy amount stands in for it (a 400 g tub); without one it is unknown.
+    """
+    if (item.get("unit") or "pcs") not in MEASURED_UNITS:
+        return 1.0
+    size = item.get("restock_quantity")
+    return float(size) if size and float(size) > 0 else None
+
+
+def packs_left(quantity: float, size: float) -> int:
+    """Packs it takes to hold the quantity: a started pack counts as one."""
+    return math.ceil(round(quantity / size, 6)) if quantity > 0 else 0
+
+
+def open_pack_finished(item: dict[str, Any], before: float, after: float) -> bool:
+    """Whether a change of quantity used up the pack that was open, so its opened_on no longer applies.
+
+    The open pack is used first, so it is gone once fewer packs are left. Buying more never clears it.
+    """
+    if not item.get("opened_on"):
+        return False
+    if before <= 0:
+        return after > 0  # restocked from nothing: the new packs are sealed
+    if after >= before:
+        return False
+    if after <= 0:
+        return True
+    size = pack_size(item)
+    return size is not None and packs_left(after, size) < packs_left(before, size)
+
+
+def stock_changes(item: dict[str, Any], changes: dict[str, Any]) -> dict[str, Any]:
+    """What an update really stores: the same changes, plus opened_on dropped once the open pack is used up.
+
+    An opened_on in the update itself always wins (a lower quantity and a new opening date together).
+    """
+    if "quantity" in changes and "opened_on" not in changes and open_pack_finished(
+        {**item, **changes}, float(item.get("quantity") or 0), float(changes["quantity"] or 0)
+    ):
+        return {**changes, "opened_on": None}
+    return changes

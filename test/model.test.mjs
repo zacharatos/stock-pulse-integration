@@ -14,6 +14,7 @@ import {
   itemStatus,
   looksLikeBarcode,
   matchesQuery,
+  openPackFinished,
   parseBarcodes,
   presentValues,
   scoped,
@@ -183,4 +184,27 @@ test("an opened pack counts from opening, like the integration", () => {
   assert.deepEqual(effectiveExpiry({ ...turkey, expiry: "2026-10-05" }), { date: "2026-10-05", byOpening: false });
   assert.deepEqual(effectiveExpiry(item("m", "Milk")), { date: null, byOpening: false });
   assert.equal(itemStatus(item("m", "Milk"), TODAY, 3).openedDays, null);
+});
+
+test("using up the open pack clears its date, like the integration", () => {
+  const opened = { opened_on: "2026-10-01" };
+  const pcs = item("p", "Turkey", { quantity: 2, ...opened });
+  for (const [before, after] of [[2, 1], [3, 2], [1.5, 1], [1, 0], [0, 1]]) assert.ok(openPackFinished(pcs, before, after), `${before} -> ${after}`);
+  for (const [before, after] of [[2, 1.5], [2, 3], [2, 2], [0, 0]]) assert.ok(!openPackFinished(pcs, before, after), `${before} -> ${after}`);
+  assert.ok(openPackFinished({ ...pcs, unit: "carton" }, 2, 1));
+  // Never opened, or stored before the field existed.
+  assert.ok(!openPackFinished(item("n", "Turkey"), 2, 1));
+  assert.ok(!openPackFinished({ ...pcs, opened_on: null }, 2, 1));
+  // Weighed items: the buy amount is the pack size.
+  const feta = item("f", "Feta", { unit: "g", restock_quantity: 400, ...opened });
+  assert.ok(!openPackFinished(feta, 800, 700));
+  assert.ok(openPackFinished(feta, 700, 400));
+  assert.ok(openPackFinished(feta, 800, 350));
+  assert.ok(!openPackFinished(feta, 400, 300));
+  // Without a buy amount only running out clears it.
+  const rice = item("r", "Rice", { unit: "kg", ...opened });
+  assert.ok(!openPackFinished(rice, 1.5, 1));
+  assert.ok(openPackFinished(rice, 1.5, 0));
+  // Floating point: 0.3 / 0.1 is not exactly 3.
+  assert.ok(openPackFinished(item("k", "Kg", { unit: "kg", restock_quantity: 0.1, ...opened }), 0.3, 0.2));
 });

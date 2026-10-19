@@ -420,3 +420,45 @@ async def test_opened_pack(hass, inventory):
 
     with pytest.raises(vol.Invalid):
         await add(hass, name="Milk", days_after_opening=2.5)
+
+
+async def test_using_up_the_open_pack_clears_its_date(hass, inventory):
+    today = dt_util.now().date()
+    opened = (today - timedelta(days=8)).isoformat()
+    turkey = await add(hass, name="Smoked turkey", quantity=2, expiry=(today + timedelta(days=77)).isoformat(),
+                       opened_on=opened, days_after_opening=10)
+    await settle(hass)
+    stored = manager(inventory).inventory.items[turkey["id"]]
+    assert hass.states.get("sensor.home_expiring_soon").state == "1"
+
+    # One pack left, and it is sealed: nothing expires any more.
+    await adjust(hass, "Smoked turkey", -1)
+    assert stored["quantity"] == 1 and stored["opened_on"] is None
+    assert hass.states.get("sensor.home_expiring_soon").state == "0"
+
+    # Buying more while one is open keeps the open pack's date.
+    await hass.services.async_call(DOMAIN, "update_item", {"item": "Smoked turkey", "opened_on": opened}, blocking=True)
+    await adjust(hass, "Smoked turkey", 1)
+    assert stored["quantity"] == 2 and stored["opened_on"] == opened
+    # Half of the open one eaten is still the open one.
+    await adjust(hass, "Smoked turkey", -0.5)
+    assert stored["opened_on"] == opened
+
+
+async def test_sheet_save_lowering_quantity(hass, inventory, hass_ws_client):
+    today = dt_util.now().date()
+    opened = (today - timedelta(days=2)).isoformat()
+    item = await add(hass, name="Smoked turkey", quantity=3, opened_on=opened, days_after_opening=10)
+    stored = manager(inventory).inventory.items[item["id"]]
+    client = await hass_ws_client(hass)
+
+    async def update(changes):
+        await client.send_json_auto_id({"type": f"{DOMAIN}/item/update", "item_id": item["id"], "changes": changes})
+        msg = await client.receive_json()
+        assert msg["success"], msg
+
+    await update({"quantity": 2})
+    assert stored["opened_on"] is None
+    # Lowering the quantity and dating the next pack in one save keeps the date given.
+    await update({"quantity": 1, "opened_on": opened})
+    assert stored["quantity"] == 1 and stored["opened_on"] == opened

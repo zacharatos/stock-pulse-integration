@@ -43,6 +43,30 @@ export function effectiveExpiry(item: Item): { date: string | null; byOpening: b
   return { date: item.expiry ? item.expiry.slice(0, 10) : null, byOpening: false };
 }
 
+/** Units that measure an amount instead of counting packs (as logic.py). */
+export const MEASURED_UNITS = ["kg", "g", "l", "ml"];
+
+/** How much one pack holds: 1 for counted units, the buy amount for measured ones, else unknown (as logic.py). */
+export function packSize(item: Item): number | null {
+  if (!MEASURED_UNITS.includes(item.unit || "pcs")) return 1;
+  return item.restock_quantity && item.restock_quantity > 0 ? item.restock_quantity : null;
+}
+
+/** Packs it takes to hold the quantity; a started pack counts as one. */
+export function packsLeft(quantity: number, size: number): number {
+  return quantity > 0 ? Math.ceil(Math.round((quantity / size) * 1e6) / 1e6) : 0;
+}
+
+/** Whether a change of quantity used up the open pack, so its Opened date no longer applies (as logic.py). */
+export function openPackFinished(item: Item, before: number, after: number): boolean {
+  if (!item.opened_on) return false;
+  if (before <= 0) return after > 0;
+  if (after >= before) return false;
+  if (after <= 0) return true;
+  const size = packSize(item);
+  return size != null && packsLeft(after, size) < packsLeft(before, size);
+}
+
 export function itemStatus(item: Item, today: string, soonDays: number): ItemStatus {
   const out = item.quantity <= 0;
   const low = item.min_quantity != null && item.quantity <= item.min_quantity;

@@ -101,6 +101,7 @@ Tap a filter chip again to go back to everything. In an item's sheet, **Bought**
 Give an item **Keeps after opening (days)**, the line on the label that says "keeps 10 days in the fridge after opening". When you open one, tap **Opened** in its sheet: today becomes its *Opened on* date, and the date that counts is whichever comes first, the best-before or opened + those days. The row then says *Opened · use within 2 days*, and the item shows up under *Expiring* and in the expiring sensors in time.
 
 - Buying more while one is open keeps the open pack's date. Running out and restocking clears it, since the new packs are sealed.
+- Using the open one up (− on a counted item, or a whole pack's worth of a weighed item that has a buy amount) clears the date, and **Opened** is offered again for the next pack. Eating part of it (1.5 → 1.4, or 100 g of a 400 g tub) keeps it.
 - The *Opened on* date can be corrected in the sheet, and both fields can be set from actions (`opened_on`, `days_after_opening`).
 
 ## Scanning barcodes
@@ -142,7 +143,7 @@ All take an optional `inventory` (needed only if you have several). `item` is a 
 | --- | --- |
 | `stock_pulse.add_item` | Add an item; if one with that name (or that `barcode`) exists, its quantity is increased. |
 | `stock_pulse.update_item` | Change any field. `barcode` adds one barcode to the item; `barcodes` replaces the list. |
-| `stock_pulse.adjust_quantity` | `amount: -1` when you open one, `+6` when you unpack. Great on an NFC tag. |
+| `stock_pulse.adjust_quantity` | `amount: -1` when you finish one, `+6` when you unpack. Great on an NFC tag. |
 | `stock_pulse.remove_item` | Delete an item. |
 | `stock_pulse.add_to_shopping_list` | Put an item on the list now. |
 | `stock_pulse.sync_shopping_list` | Read the list now (it is also read on every change and every 10 minutes). |

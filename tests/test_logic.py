@@ -9,9 +9,11 @@ from custom_components.stock_pulse.logic import (
     fmt_number,
     is_low,
     norm_barcode,
+    open_pack_finished,
     parse_summary,
     product_suggestion,
     shopping_summary,
+    stock_changes,
 )
 
 
@@ -100,3 +102,49 @@ def test_an_opened_pack_counts_from_opening():
     assert effective_expiry({"quantity": 1, "opened_on": "2026-10-05", "days_after_opening": 3}) == ("2026-10-08", True)
     # Items stored before these fields existed.
     assert effective_expiry({"quantity": 1}) == (None, False)
+
+
+OPENED = {"opened_on": "2026-10-05"}
+
+
+def test_open_pack_finished_counted_units():
+    pcs = {"unit": "pcs", "quantity": 2, **OPENED}
+    for before, after in [(2, 1), (3, 2), (1.5, 1), (1, 0), (0, 1)]:
+        assert open_pack_finished(pcs, before, after), (before, after)
+    for before, after in [(2, 1.5), (2, 3), (2, 2), (0, 0)]:
+        assert not open_pack_finished(pcs, before, after), (before, after)
+    assert open_pack_finished({**pcs, "unit": "carton"}, 2, 1)
+    # Never opened, or stored before the field existed.
+    assert not open_pack_finished({"unit": "pcs", "opened_on": None}, 2, 1)
+    assert not open_pack_finished({"quantity": 2}, 2, 1)
+    # No unit at all counts as pieces.
+    assert open_pack_finished(OPENED, 2, 1)
+
+
+def test_open_pack_finished_weighed_units():
+    feta = {"unit": "g", "restock_quantity": 400, **OPENED}
+    assert not open_pack_finished(feta, 800, 700)
+    assert open_pack_finished(feta, 700, 400)
+    assert open_pack_finished(feta, 800, 350)
+    assert not open_pack_finished(feta, 400, 300)
+    # Without a buy amount the pack size is unknown: only running out clears it.
+    rice = {"unit": "kg", **OPENED}
+    assert not open_pack_finished(rice, 1.5, 1)
+    assert open_pack_finished(rice, 1.5, 0)
+    assert not open_pack_finished({**rice, "restock_quantity": 0}, 1.5, 1)
+    # 0.3 / 0.1 is not exactly 3 in floating point.
+    assert open_pack_finished({"unit": "kg", "restock_quantity": 0.1, **OPENED}, 0.3, 0.2)
+
+
+def test_stock_changes_clears_or_keeps_opened_on():
+    turkey = {"unit": "pack", "quantity": 2, **OPENED}
+    assert stock_changes(turkey, {"quantity": 1}) == {"quantity": 1, "opened_on": None}
+    assert stock_changes(turkey, {"quantity": 1.5}) == {"quantity": 1.5}
+    # An opened_on in the same update always wins.
+    assert stock_changes(turkey, {"quantity": 1, "opened_on": "2026-10-09"}) == {"quantity": 1, "opened_on": "2026-10-09"}
+    # No quantity in the changes: nothing to decide.
+    assert stock_changes(turkey, {"notes": "x"}) == {"notes": "x"}
+    # A unit change in the same update is used: 700 g of a 400 g tub is still two packs.
+    feta = {"unit": "g", "restock_quantity": 400, "quantity": 800, **OPENED}
+    assert stock_changes(feta, {"quantity": 700}) == {"quantity": 700}
+    assert stock_changes(feta, {"quantity": 700, "unit": "pcs"}) == {"quantity": 700, "unit": "pcs", "opened_on": None}

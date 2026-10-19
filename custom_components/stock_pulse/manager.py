@@ -47,7 +47,7 @@ from .const import (
     VERSION,
 )
 from .inventory import Inventory
-from .logic import buy_amount, is_low, norm_name, parse_summary, shopping_summary
+from .logic import buy_amount, is_low, norm_name, parse_summary, shopping_summary, stock_changes
 from .shopping import ShoppingList
 
 _LOGGER = logging.getLogger(__name__)
@@ -189,9 +189,8 @@ class StockPulseManager:
     async def async_update_item(self, ref: str, changes: dict[str, Any]) -> dict[str, Any]:
         item = self.get(ref)
         before = deepcopy(item)
-        if float(before[ATTR_QUANTITY]) <= 0 < float(changes.get(ATTR_QUANTITY, 0)) and ATTR_OPENED_ON not in changes:
-            # Ran out, now restocked: the pack that was open is gone, the new ones are sealed.
-            changes = {**changes, ATTR_OPENED_ON: None}
+        # Used up the open pack (or ran out and restocked): its Opened date goes with it.
+        changes = stock_changes(before, changes)
         self.inventory.patch(item["id"], changes)
         if ATTR_BARCODES in changes:
             self._claim_barcodes(item)

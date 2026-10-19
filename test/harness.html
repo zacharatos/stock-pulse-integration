@@ -134,7 +134,7 @@
     item("Greek yoghurt", { quantity: 2, unit: "pcs", category: "food", location: "fridge", expiry: day(1) }),
     item("Feta", { quantity: 400, unit: "g", category: "food", location: "fridge", expiry: day(-2), restock_quantity: 400, barcodes: ["5202576461208"] }),
     item("Milk", { quantity: 1, unit: "bottle", category: "drinks", location: "fridge", min_quantity: 1, expiry: day(4) }),
-    item("Smoked turkey", { quantity: 1, unit: "pack", category: "food", location: "fridge", expiry: day(77), opened_on: day(-8), days_after_opening: 10 }),
+    item("Smoked turkey", { quantity: 2, unit: "pack", category: "food", location: "fridge", expiry: day(77), opened_on: day(-8), days_after_opening: 10 }),
     item("Peas", { quantity: 2, unit: "bag", category: "frozen", location: "freezer", expiry: day(200) }),
     item("Chicken souvlaki", { quantity: 6, unit: "pcs", category: "frozen", location: "freezer", expiry: day(3) }),
     item("Vanilla ice cream", { quantity: 1, unit: "box", category: "frozen", location: "freezer" }),
@@ -150,6 +150,17 @@
   const subs = new Set();
   const push = () => subs.forEach((cb) => cb(snap()));
   const log = (m) => (document.getElementById("log").textContent += m + "\n");
+  // The integration's rule (logic.py open_pack_finished): using up the open pack drops its Opened date.
+  const openPackFinished = (i, before, after) => {
+    if (!i.opened_on) return false;
+    if (before <= 0) return after > 0;
+    if (after >= before) return false;
+    if (after <= 0) return true;
+    const measured = ["kg", "g", "l", "ml"].includes(i.unit || "pcs");
+    const size = measured ? (i.restock_quantity > 0 ? i.restock_quantity : null) : 1;
+    const packs = (q) => (q > 0 ? Math.ceil(Math.round((q / size) * 1e6) / 1e6) : 0);
+    return size != null && packs(after) < packs(before);
+  };
   const lowNow = (i) => i.min_quantity != null && i.quantity <= i.min_quantity;
   const hass = {
     language: params.get("lang") || "en", locale: { language: params.get("lang") || "en" }, states: {},
@@ -162,10 +173,15 @@
       const find = () => items.find((i) => i.id === msg.item_id);
       if (msg.type === "stock_pulse/inventories") return [{ entry_id: "e1", title: "Home" }];
       if (msg.type === "stock_pulse/item/add") { const it = item(msg.item.name, msg.item); items.push(it); push(); return it; }
-      if (msg.type === "stock_pulse/item/update") { Object.assign(find(), msg.changes); push(); return find(); }
+      if (msg.type === "stock_pulse/item/update") {
+        const it = find(), changes = { ...msg.changes };
+        if ("quantity" in changes && !("opened_on" in changes) && openPackFinished({ ...it, ...changes }, it.quantity, changes.quantity)) changes.opened_on = null;
+        Object.assign(it, changes); push(); return it;
+      }
       if (msg.type === "stock_pulse/item/remove") { items.splice(items.indexOf(find()), 1); push(); return null; }
       if (msg.type === "stock_pulse/item/adjust") {
-        const it = find(); it.quantity = Math.max(0, it.quantity + msg.amount);
+        const it = find(), before = it.quantity; it.quantity = Math.max(0, it.quantity + msg.amount);
+        if (openPackFinished(it, before, it.quantity)) it.opened_on = null;
         if (lowNow(it) && !it.shopping) it.shopping = { uid: "x", summary: it.name, amount: 1, auto: true };
         if (!lowNow(it) && it.shopping?.auto) it.shopping = null;
         push(); return it;
