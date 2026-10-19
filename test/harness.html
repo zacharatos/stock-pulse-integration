@@ -140,9 +140,13 @@
     item("Vanilla ice cream", { quantity: 1, unit: "box", category: "frozen", location: "freezer" }),
     item("Light bulbs", { quantity: 4, unit: "pcs", category: "household", location: "other", min_quantity: 1 }),
   ];
+  // ?batches=1 turns the inventory's Batches option on and adds an item that holds two dates.
+  const batchesOn = params.has("batches");
+  if (batchesOn) items.push(item("Minced beef", { quantity: 3, unit: "pack", category: "frozen", location: "freezer", expiry: day(2),
+    batches: [{ quantity: 1, expiry: day(2) }, { quantity: 2, expiry: day(40) }] }));
   const snap = () => ({
     entry_id: "e1", title: "Home", version: "0.1.0", items: [...items].sort((a, b) => a.name.localeCompare(b.name)),
-    settings: { shopping_list: "todo.shopping_list", auto_add: true, auto_restock: true, expiring_days: 3 },
+    settings: { shopping_list: "todo.shopping_list", auto_add: true, auto_restock: true, expiring_days: 3, ...(batchesOn ? { batches: true } : {}) },
     units: ["pcs","pack","roll","bottle","can","box","bag","jar","kg","g","l","ml"],
     locations: ["pantry","fridge","freezer","bathroom","cleaning","other"],
     categories: ["food","drinks","frozen","cleaning","toiletries","household","baby","pets","medicine","other"],
@@ -161,6 +165,40 @@
     const packs = (q) => (q > 0 ? Math.ceil(Math.round((q / size) * 1e6) / 1e6) : 0);
     return size != null && packs(after) < packs(before);
   };
+  // The integration's batch rules (logic.py), a short copy for the mock: stock_changes and what it uses.
+  const dayOf = (v) => (v ? String(v).slice(0, 10) : null);
+  const r3 = (n) => Math.round(n * 1000) / 1000;
+  const normB = (bs) => {
+    const m = new Map();
+    for (const b of bs || []) { const q = r3(Number(b.quantity) || 0); if (q > 0) m.set(dayOf(b.expiry), r3((m.get(dayOf(b.expiry)) || 0) + q)); }
+    return [...m].sort(([a], [b]) => (a === null) - (b === null) || ((a || "") < (b || "") ? -1 : (a || "") > (b || "") ? 1 : 0)).map(([expiry, quantity]) => ({ quantity, expiry }));
+  };
+  const batchesOf = (i) => ((i.batches || []).length >= 2 ? i.batches.map((b) => ({ ...b })) : [{ quantity: i.quantity, expiry: dayOf(i.expiry) }]);
+  const totalB = (bs) => r3(bs.reduce((s, b) => s + b.quantity, 0));
+  const takeB = (bs, amount) => { let left = r3(amount); const kept = []; for (const b of normB(bs)) { if (left >= b.quantity) left = r3(left - b.quantity); else { kept.push({ ...b, quantity: r3(b.quantity - left) }); left = 0; } } return kept; };
+  const putB = (bs, amount, expiry) => { const r = normB(bs), d = dayOf(expiry), t = d ? r.find((b) => b.expiry === d) : r[r.length - 1]; if (t) t.quantity = r3(t.quantity + amount); else r.push({ quantity: r3(amount), expiry: d }); return normB(r); };
+  const fieldsB = (bs) => { const r = normB(bs); return r.length >= 2 ? { batches: r, quantity: totalB(r), expiry: r[0].expiry } : r.length ? { batches: [], quantity: r[0].quantity, expiry: r[0].expiry } : { batches: [], quantity: 0 }; };
+  const stockChanges = (it, ch) => {
+    const has = (it.batches || []).length >= 2;
+    if ("batches" in ch || (has && ("quantity" in ch || "expiry" in ch))) {
+      const before = normB(batchesOf(it));
+      let first = before.length ? before[0].expiry : dayOf(it.expiry), after;
+      if ("batches" in ch) after = normB(ch.batches);
+      else {
+        after = before;
+        if ("expiry" in ch) { first = dayOf(ch.expiry); after = normB([{ ...after[0], expiry: first }, ...after.slice(1)]); }
+        if ("quantity" in ch) { const total = totalB(after), want = r3(ch.quantity); after = want < total ? takeB(after, total - want) : want > total ? putB(after, want - total) : after; }
+      }
+      const out = {}; for (const k in ch) if (!["batches", "quantity", "expiry"].includes(k)) out[k] = ch[k];
+      Object.assign(out, fieldsB(after));
+      const ta = totalB(after), tb = totalB(before);
+      const done = !("opened_on" in ch) && (tb <= 0 ? openPackFinished({ ...it, ...out }, 0, ta) : ta < tb && openPackFinished({ ...it, ...out }, before[0].quantity, (after.find((b) => b.expiry === first) || { quantity: 0 }).quantity));
+      if (done) out.opened_on = null;
+      return out;
+    }
+    if ("quantity" in ch && !("opened_on" in ch) && openPackFinished({ ...it, ...ch }, it.quantity, ch.quantity)) return { ...ch, opened_on: null };
+    return ch;
+  };
   const lowNow = (i) => i.min_quantity != null && i.quantity <= i.min_quantity;
   const hass = {
     language: params.get("lang") || "en", locale: { language: params.get("lang") || "en" }, states: {},
@@ -172,16 +210,20 @@
       log(JSON.stringify(msg));
       const find = () => items.find((i) => i.id === msg.item_id);
       if (msg.type === "stock_pulse/inventories") return [{ entry_id: "e1", title: "Home" }];
-      if (msg.type === "stock_pulse/item/add") { const it = item(msg.item.name, msg.item); items.push(it); push(); return it; }
+      if (msg.type === "stock_pulse/item/add") {
+        const it = item(msg.item.name, msg.item);
+        if (msg.item.batches) Object.assign(it, fieldsB(msg.item.batches));
+        items.push(it); push(); return it;
+      }
       if (msg.type === "stock_pulse/item/update") {
-        const it = find(), changes = { ...msg.changes };
-        if ("quantity" in changes && !("opened_on" in changes) && openPackFinished({ ...it, ...changes }, it.quantity, changes.quantity)) changes.opened_on = null;
-        Object.assign(it, changes); push(); return it;
+        const it = find();
+        Object.assign(it, stockChanges(it, msg.changes)); push(); return it;
       }
       if (msg.type === "stock_pulse/item/remove") { items.splice(items.indexOf(find()), 1); push(); return null; }
       if (msg.type === "stock_pulse/item/adjust") {
-        const it = find(), before = it.quantity; it.quantity = Math.max(0, it.quantity + msg.amount);
-        if (openPackFinished(it, before, it.quantity)) it.opened_on = null;
+        const it = find();
+        // A date on added stock joins the batch with that date, or starts one.
+        Object.assign(it, stockChanges(it, msg.expiry && msg.amount > 0 ? { batches: putB(batchesOf(it), msg.amount, msg.expiry) } : { quantity: Math.max(0, r3(it.quantity + msg.amount)) }));
         if (lowNow(it) && !it.shopping) it.shopping = { uid: "x", summary: it.name, amount: 1, auto: true };
         if (!lowNow(it) && it.shopping?.auto) it.shopping = null;
         push(); return it;

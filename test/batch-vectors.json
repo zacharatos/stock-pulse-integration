@@ -1,0 +1,177 @@
+{
+  "_": "Shared by tests/test_logic.py and test/model.test.mjs: the batch rules of logic.py and src/model.ts must give the same answers.",
+  "norm": [
+    { "in": [], "out": [] },
+    {
+      "in": [
+        { "quantity": 1, "expiry": "2026-11-30" },
+        { "quantity": 2, "expiry": "2026-10-25" },
+        { "quantity": 0.5, "expiry": null },
+        { "quantity": 0, "expiry": "2026-12-24" }
+      ],
+      "out": [
+        { "quantity": 2, "expiry": "2026-10-25" },
+        { "quantity": 1, "expiry": "2026-11-30" },
+        { "quantity": 0.5, "expiry": null }
+      ]
+    },
+    {
+      "in": [
+        { "quantity": 1, "expiry": "2026-10-25T10:00:00" },
+        { "quantity": 2, "expiry": "2026-10-25" },
+        { "quantity": 1, "expiry": null },
+        { "quantity": 1, "expiry": null }
+      ],
+      "out": [
+        { "quantity": 3, "expiry": "2026-10-25" },
+        { "quantity": 2, "expiry": null }
+      ]
+    },
+    {
+      "in": [
+        { "quantity": 0.1, "expiry": "2026-10-25" },
+        { "quantity": 0.2, "expiry": "2026-10-25" },
+        { "quantity": 1.0004, "expiry": "2026-11-30" },
+        { "quantity": -1, "expiry": "2026-12-24" }
+      ],
+      "out": [
+        { "quantity": 0.3, "expiry": "2026-10-25" },
+        { "quantity": 1, "expiry": "2026-11-30" }
+      ]
+    }
+  ],
+  "of": [
+    { "item": { "quantity": 3, "expiry": "2026-10-25" }, "out": [{ "quantity": 3, "expiry": "2026-10-25" }] },
+    { "item": { "quantity": 3, "expiry": null, "batches": [] }, "out": [{ "quantity": 3, "expiry": null }] },
+    { "item": { "quantity": 1, "expiry": "2026-10-25", "batches": [{ "quantity": 1, "expiry": "2026-10-25" }] }, "out": [{ "quantity": 1, "expiry": "2026-10-25" }] },
+    { "item": { "quantity": 0, "expiry": "2026-10-25" }, "out": [{ "quantity": 0, "expiry": "2026-10-25" }] },
+    {
+      "item": { "quantity": 3, "expiry": "2026-10-25", "batches": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }] },
+      "out": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }]
+    }
+  ],
+  "take": [
+    { "in": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }], "amount": 1, "out": [{ "quantity": 2, "expiry": "2026-11-30" }] },
+    { "in": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }], "amount": 2, "out": [{ "quantity": 1, "expiry": "2026-11-30" }] },
+    { "in": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }], "amount": 0.5, "out": [{ "quantity": 0.5, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }] },
+    { "in": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }], "amount": 3, "out": [] },
+    { "in": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }], "amount": 5, "out": [] },
+    { "in": [{ "quantity": 2, "expiry": "2026-11-30" }, { "quantity": 1, "expiry": "2026-10-25" }], "amount": 1, "out": [{ "quantity": 2, "expiry": "2026-11-30" }] },
+    { "in": [{ "quantity": 1, "expiry": null }, { "quantity": 1, "expiry": "2026-10-25" }], "amount": 1, "out": [{ "quantity": 1, "expiry": null }] }
+  ],
+  "put": [
+    { "in": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }], "amount": 1, "expiry": null, "out": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 3, "expiry": "2026-11-30" }] },
+    { "in": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }], "amount": 1, "expiry": "2026-11-30", "out": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 3, "expiry": "2026-11-30" }] },
+    { "in": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }], "amount": 4, "expiry": "2026-11-01", "out": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 4, "expiry": "2026-11-01" }, { "quantity": 2, "expiry": "2026-11-30" }] },
+    { "in": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }], "amount": 1, "expiry": "2026-10-01", "out": [{ "quantity": 1, "expiry": "2026-10-01" }, { "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }] },
+    { "in": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 1, "expiry": null }], "amount": 1, "expiry": null, "out": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": null }] },
+    { "in": [{ "quantity": 1, "expiry": "2026-10-25" }], "amount": 2, "expiry": "2026-10-25T08:00:00", "out": [{ "quantity": 3, "expiry": "2026-10-25" }] },
+    { "in": [{ "quantity": 3, "expiry": "2026-10-25" }], "amount": 2, "expiry": null, "out": [{ "quantity": 5, "expiry": "2026-10-25" }] },
+    { "in": [], "amount": 1, "expiry": null, "out": [{ "quantity": 1, "expiry": null }] }
+  ],
+  "fields": [
+    { "in": [], "out": { "batches": [], "quantity": 0 } },
+    { "in": [{ "quantity": 2, "expiry": "2026-10-25" }], "out": { "batches": [], "quantity": 2, "expiry": "2026-10-25" } },
+    { "in": [{ "quantity": 0, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }], "out": { "batches": [], "quantity": 2, "expiry": "2026-11-30" } },
+    {
+      "in": [{ "quantity": 1, "expiry": "2026-11-30" }, { "quantity": 2, "expiry": "2026-10-25" }],
+      "out": { "batches": [{ "quantity": 2, "expiry": "2026-10-25" }, { "quantity": 1, "expiry": "2026-11-30" }], "quantity": 3, "expiry": "2026-10-25" }
+    },
+    {
+      "in": [{ "quantity": 1, "expiry": null }, { "quantity": 2, "expiry": "2026-10-25" }],
+      "out": { "batches": [{ "quantity": 2, "expiry": "2026-10-25" }, { "quantity": 1, "expiry": null }], "quantity": 3, "expiry": "2026-10-25" }
+    }
+  ],
+  "changes": [
+    {
+      "name": "taking one from the first-expiring batch uses it up, and with it the open pack",
+      "item": { "unit": "pack", "quantity": 3, "expiry": "2026-10-25", "opened_on": "2026-10-05", "batches": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }] },
+      "changes": { "quantity": 2 },
+      "out": { "batches": [], "quantity": 2, "expiry": "2026-11-30", "opened_on": null }
+    },
+    {
+      "name": "adding without a date joins the latest batch and keeps the open pack",
+      "item": { "unit": "pack", "quantity": 3, "expiry": "2026-10-25", "opened_on": "2026-10-05", "batches": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }] },
+      "changes": { "quantity": 4 },
+      "out": { "batches": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 3, "expiry": "2026-11-30" }], "quantity": 4, "expiry": "2026-10-25" }
+    },
+    {
+      "name": "using everything leaves a plain empty item with its date",
+      "item": { "unit": "pack", "quantity": 3, "expiry": "2026-10-25", "opened_on": "2026-10-05", "batches": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }] },
+      "changes": { "quantity": 0 },
+      "out": { "batches": [], "quantity": 0, "opened_on": null }
+    },
+    {
+      "name": "a new expiry re-dates the first batch",
+      "item": { "unit": "pack", "quantity": 3, "expiry": "2026-10-25", "opened_on": "2026-10-05", "batches": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }] },
+      "changes": { "expiry": "2026-12-24" },
+      "out": { "batches": [{ "quantity": 2, "expiry": "2026-11-30" }, { "quantity": 1, "expiry": "2026-12-24" }], "quantity": 3, "expiry": "2026-11-30" }
+    },
+    {
+      "name": "batches win over quantity and expiry in the same update",
+      "item": { "unit": "pack", "quantity": 3, "expiry": "2026-10-25", "opened_on": "2026-10-05", "batches": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }] },
+      "changes": { "batches": [{ "quantity": 1, "expiry": "2026-11-30" }, { "quantity": 1, "expiry": "2026-10-25" }], "quantity": 99, "expiry": "2030-01-01", "notes": "x" },
+      "out": { "batches": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 1, "expiry": "2026-11-30" }], "quantity": 2, "expiry": "2026-10-25", "notes": "x" }
+    },
+    {
+      "name": "an opened_on in the same update wins",
+      "item": { "unit": "pack", "quantity": 3, "expiry": "2026-10-25", "opened_on": "2026-10-05", "batches": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }] },
+      "changes": { "quantity": 2, "opened_on": "2026-10-19" },
+      "out": { "batches": [], "quantity": 2, "expiry": "2026-11-30", "opened_on": "2026-10-19" }
+    },
+    {
+      "name": "removing the first batch in the sheet uses up the open pack",
+      "item": { "unit": "pack", "quantity": 3, "expiry": "2026-10-25", "opened_on": "2026-10-05", "batches": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }] },
+      "changes": { "batches": [{ "quantity": 2, "expiry": "2026-11-30" }] },
+      "out": { "batches": [], "quantity": 2, "expiry": "2026-11-30", "opened_on": null }
+    },
+    {
+      "name": "counted units: the open pack goes when fewer packs are left in the first batch",
+      "item": { "unit": "pcs", "quantity": 4, "expiry": "2026-10-25", "opened_on": "2026-10-05", "batches": [{ "quantity": 2, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }] },
+      "changes": { "quantity": 3 },
+      "out": { "batches": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }], "quantity": 3, "expiry": "2026-10-25", "opened_on": null }
+    },
+    {
+      "name": "weighed units: part of the open tub is still the open tub",
+      "item": { "unit": "g", "restock_quantity": 400, "quantity": 1200, "expiry": "2026-10-25", "opened_on": "2026-10-05", "batches": [{ "quantity": 800, "expiry": "2026-10-25" }, { "quantity": 400, "expiry": "2026-11-30" }] },
+      "changes": { "quantity": 1100 },
+      "out": { "batches": [{ "quantity": 700, "expiry": "2026-10-25" }, { "quantity": 400, "expiry": "2026-11-30" }], "quantity": 1100, "expiry": "2026-10-25" }
+    },
+    {
+      "name": "a batch that is not the first-expiring does not touch the open pack",
+      "item": { "unit": "pack", "quantity": 3, "expiry": "2026-10-25", "opened_on": "2026-10-05", "batches": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }] },
+      "changes": { "batches": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 1, "expiry": "2026-11-30" }] },
+      "out": { "batches": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 1, "expiry": "2026-11-30" }], "quantity": 2, "expiry": "2026-10-25" }
+    },
+    {
+      "name": "stock that comes back from nothing with a date is sealed and takes the new date",
+      "item": { "unit": "pack", "quantity": 0, "expiry": "2026-10-01", "opened_on": "2026-09-20", "batches": [] },
+      "changes": { "batches": [{ "quantity": 2, "expiry": "2026-12-24" }] },
+      "out": { "batches": [], "quantity": 2, "expiry": "2026-12-24", "opened_on": null }
+    },
+    {
+      "name": "a plain item split into batches: the total did not go down, so the open pack stays",
+      "item": { "unit": "pcs", "quantity": 2, "expiry": "2026-10-25", "opened_on": "2026-10-05", "batches": [] },
+      "changes": { "batches": [{ "quantity": 2, "expiry": "2026-10-25" }, { "quantity": 1, "expiry": null }] },
+      "out": { "batches": [{ "quantity": 2, "expiry": "2026-10-25" }, { "quantity": 1, "expiry": null }], "quantity": 3, "expiry": "2026-10-25" }
+    },
+    {
+      "name": "a plain item without batches is stored as given, with the open-pack rule",
+      "item": { "unit": "pack", "quantity": 2, "expiry": "2026-10-25", "opened_on": "2026-10-05" },
+      "changes": { "quantity": 1 },
+      "out": { "quantity": 1, "opened_on": null }
+    },
+    {
+      "name": "a plain item's expiry is just stored",
+      "item": { "unit": "pack", "quantity": 2, "expiry": "2026-10-25", "opened_on": "2026-10-05", "batches": [] },
+      "changes": { "expiry": "2026-11-30" },
+      "out": { "expiry": "2026-11-30" }
+    },
+    {
+      "name": "nothing is opened, nothing to clear; other fields pass through",
+      "item": { "unit": "pack", "quantity": 3, "expiry": "2026-10-25", "opened_on": null, "batches": [{ "quantity": 1, "expiry": "2026-10-25" }, { "quantity": 2, "expiry": "2026-11-30" }] },
+      "changes": { "quantity": 2, "notes": "x" },
+      "out": { "batches": [], "quantity": 2, "expiry": "2026-11-30", "notes": "x" }
+    }
+  ]
+}

@@ -1,20 +1,33 @@
 """The pure rules in logic.py."""
 
 from datetime import date
+import json
+from pathlib import Path
+
+import pytest
 
 from custom_components.stock_pulse.logic import (
+    batch_fields,
+    batches_of,
     buy_amount,
     effective_expiry,
     expiry_state,
     fmt_number,
     is_low,
     norm_barcode,
+    norm_batches,
     open_pack_finished,
     parse_summary,
     product_suggestion,
+    put_batches,
+    repair_batches,
     shopping_summary,
     stock_changes,
+    take_batches,
 )
+
+# The same vectors run in test/model.test.mjs against src/model.ts: the two must agree.
+VECTORS = json.loads((Path(__file__).parent.parent / "test" / "batch-vectors.json").read_text())
 
 
 def test_low_needs_a_threshold():
@@ -148,3 +161,58 @@ def test_stock_changes_clears_or_keeps_opened_on():
     feta = {"unit": "g", "restock_quantity": 400, "quantity": 800, **OPENED}
     assert stock_changes(feta, {"quantity": 700}) == {"quantity": 700}
     assert stock_changes(feta, {"quantity": 700, "unit": "pcs"}) == {"quantity": 700, "unit": "pcs", "opened_on": None}
+
+
+@pytest.mark.parametrize("case", VECTORS["of"])
+def test_batches_of_implicit_single(case):
+    assert batches_of(case["item"]) == case["out"]
+
+
+@pytest.mark.parametrize("case", VECTORS["norm"])
+def test_norm_batches_merges_sorts_and_drops(case):
+    # Undated last, the same date merged (the time of day is ignored), zeros dropped, three places.
+    assert norm_batches(case["in"]) == case["out"]
+
+
+@pytest.mark.parametrize("case", VECTORS["take"])
+def test_take_batches_first_expiring_first(case):
+    assert take_batches(case["in"], case["amount"]) == case["out"]
+
+
+@pytest.mark.parametrize("case", VECTORS["put"])
+def test_put_batches_with_and_without_date(case):
+    assert put_batches(case["in"], case["amount"], case["expiry"]) == case["out"]
+
+
+@pytest.mark.parametrize("case", VECTORS["fields"])
+def test_batch_fields_collapse_and_derive(case):
+    assert batch_fields(case["in"]) == case["out"]
+
+
+@pytest.mark.parametrize("case", VECTORS["changes"], ids=lambda c: c["name"])
+def test_stock_changes_with_batches(case):
+    assert stock_changes(case["item"], case["changes"]) == case["out"]
+
+
+def test_repair_batches():
+    batches = [{"quantity": 1, "expiry": "2026-10-25"}, {"quantity": 2, "expiry": "2026-11-30"}]
+    item = {"quantity": 3, "expiry": "2026-10-25", "batches": batches}
+    # In step: nothing to do. Plain items, with or without the field: nothing either.
+    assert repair_batches(item) is None
+    assert repair_batches({"quantity": 3, "expiry": "2026-10-25"}) is None
+    assert repair_batches({"quantity": 3, "expiry": "2026-10-25", "batches": []}) is None
+    # An older release raised the quantity: the difference joins the latest batch.
+    assert repair_batches({**item, "quantity": 5}) == {"batches": [batches[0], {"quantity": 4.0, "expiry": "2026-11-30"}]}
+    # ... or lowered it: taken from the first-expiring batch, onwards (here one batch is left: a plain item).
+    assert repair_batches({**item, "quantity": 1.5}) == {"batches": [], "expiry": "2026-11-30"}
+    assert repair_batches({**item, "quantity": 0}) == {"batches": []}
+    # It re-dated the item: the first batch follows.
+    assert repair_batches({**item, "expiry": "2026-12-24"}) == {
+        "batches": [{"quantity": 2.0, "expiry": "2026-11-30"}, {"quantity": 1.0, "expiry": "2026-12-24"}],
+        "expiry": "2026-11-30",
+    }
+    # A list that holds one batch only collapses.
+    assert repair_batches({"quantity": 3, "expiry": "2026-10-25", "batches": [batches[0]]}) == {"batches": []}
+    # Once repaired, an item is in step.
+    raised = {**item, "quantity": 5}
+    assert repair_batches({**raised, **repair_batches(raised)}) is None

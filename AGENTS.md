@@ -53,7 +53,7 @@ npm run typecheck && npm test && npm run build
 pytest -q   # after bash scripts/install-test-deps.sh (it adds the frontend package HA needs)
 ```
 
-Rebuild after any change in `src/` and leave the bundle modified (CI fails if it is stale). For anything visual, serve the repo and open `test/harness.html` (`?dark=1`, `?lang=el`, `?missing=1`; `?theme=pulse|glass|tonal` applies a [Pulse theme](https://github.com/zacharatos/pulse-theme) (serve the parent `Projects` folder instead and open `/<repo>/test/harness.html`, because the theme is loaded from the sibling `pulse-theme` repo)); check light, dark, Greek, a phone width, and the console. `?sheet=<item name>` opens that item's edit sheet on the first card, for screenshots of the sheet.
+Rebuild after any change in `src/` and leave the bundle modified (CI fails if it is stale). For anything visual, serve the repo and open `test/harness.html` (`?dark=1`, `?lang=el`, `?missing=1`, `?batches=1` for the Batches option on with an item that holds two dates; `?theme=pulse|glass|tonal` applies a [Pulse theme](https://github.com/zacharatos/pulse-theme) (serve the parent `Projects` folder instead and open `/<repo>/test/harness.html`, because the theme is loaded from the sibling `pulse-theme` repo)); check light, dark, Greek, a phone width, and the console. `?sheet=<item name>` opens that item's edit sheet on the first card, for screenshots of the sheet.
 
 ### Checking in a real Home Assistant
 
@@ -81,7 +81,6 @@ Two things that only showed up there, and why the code looks the way it does:
 Options, not a to-do list; ask before starting one and keep it behind config.
 
 - **Consumption history and "runs out in ~N days"** predictions from how fast quantities drop, so the list can be filled before an item is low.
-- **Batches**: the same item with several best-before dates (two packs of mince frozen on different days), used first-expiring-first.
 - **Frozen-on date** for freezer items, with a "frozen 3 months ago" hint.
 - **Shopping-list grouping by shop or aisle**, and per-store lists (one to-do entity per shop).
 - **Assist intents**: "how many eggs do we have", "we're out of milk".
@@ -99,9 +98,10 @@ The harness stubs `ha-form`; the pytest suite covers the integration with the bu
 - the card loading after an update (cache-busting `?v=`), and with the browser cache warm;
 - the loop with his real shopping list app, including ticking off on the phone while the dashboard is closed;
 - **Bought** in the sheet against his real shopping list: the entry disappears for an item put on the list automatically and for one added from the sheet;
+- the batches sheet (option on): the two forms and the batch rows with the real `ha-form` date picker on desktop and phone, **Bought** on an item with batches, and a HACS rollback to the previous release and forward again (the repair on load);
 - other to-do integrations (Local to-do, cloud lists) and their uid behaviour;
 - scanning in the companion app (its native scanner: Android and iOS, over the local IP) and in Chrome over HTTPS (permission prompt, the back camera, how fast EAN-13 is read), and how many local products Open Food Facts knows.
 
 **The companion app's scanner** is reached through the frontend's external bus, which has one command-handler slot that the frontend fills. The card chains onto it only while its scan is open (`_openNativeScan`), passes every command on to the frontend's handler, and puts it back when the scan ends. It is used only when `_commandHandler` is there to chain; if a frontend release renames it, the card falls back to the browser camera instead of breaking the app's other commands.
 
-**Item fields added later** (`barcodes`, `opened_on`, `days_after_opening` in 1.3.0) are missing on items stored before; code reads them with a default (`item.get("barcodes") or []`, `item.barcodes ?? []`) instead of migrating storage.
+**Item fields added later** (`barcodes`, `opened_on`, `days_after_opening` in 1.3.0, `batches` in 1.5.0) are missing on items stored before; code reads them with a default (`item.get("barcodes") or []`, `item.barcodes ?? []`) instead of migrating storage. `batches` is the one with rules: two or more `{quantity, expiry}` entries sorted by date (undated last), one per date; `quantity` and `expiry` stay in the API and are always the total and the earliest date, so everything that reads them works unchanged; an item with one date has `batches: []`. The storage version is not bumped (an older release must still load the store), and `manager.async_setup` repairs a list that fell behind `quantity`/`expiry`. The rules are pure (`batches_of`, `norm_batches`, `take_batches`, `put_batches`, `batch_fields`, `stock_changes`, `repair_batches` in `logic.py`, mirrored in `src/model.ts`) and share their test vectors in `test/batch-vectors.json`. Why it is built this way: decision `0003` in the home-base folder.

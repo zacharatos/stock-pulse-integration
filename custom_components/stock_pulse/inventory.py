@@ -16,6 +16,7 @@ from homeassistant.util import dt as dt_util
 from .const import (
     ATTR_AUTO_SHOP,
     ATTR_BARCODES,
+    ATTR_BATCHES,
     ATTR_CATEGORY,
     ATTR_DAYS_AFTER_OPENING,
     ATTR_EXPIRY,
@@ -30,6 +31,7 @@ from .const import (
     ATTR_UNIT,
     DOMAIN,
     MAX_BARCODES,
+    MAX_BATCHES,
     STORAGE_VERSION,
 )
 from .logic import norm_barcode, norm_name
@@ -53,6 +55,9 @@ def _date(value: Any) -> str | None:
         return date.fromisoformat(str(value)[:10]).isoformat()
     except ValueError as err:
         raise vol.Invalid(f"invalid date: {value}") from err
+
+
+valid_date = _date
 
 
 def _number(value: Any) -> float:
@@ -112,6 +117,20 @@ def _barcodes(value: Any) -> list[str]:
     return codes
 
 
+_BATCH = vol.Schema({vol.Required(ATTR_QUANTITY): _non_negative, vol.Optional(ATTR_EXPIRY): _date})
+
+
+def _batches(value: Any) -> list[dict[str, Any]]:
+    """Packs with their own best-before dates: a list of {quantity, expiry}, at most MAX_BATCHES."""
+    if value in (None, ""):
+        return []
+    if not isinstance(value, (list, tuple)):
+        raise vol.Invalid("batches must be a list of quantity and expiry")
+    if len(value) > MAX_BATCHES:
+        raise vol.Invalid(f"at most {MAX_BATCHES} batches per item")
+    return [{ATTR_QUANTITY: b[ATTR_QUANTITY], ATTR_EXPIRY: b.get(ATTR_EXPIRY)} for b in map(_BATCH, value)]
+
+
 def _keeps_days(value: Any) -> int:
     """Days a pack keeps once opened: a whole number from 1 to 10 years."""
     number = _number(value)
@@ -136,6 +155,7 @@ ITEM_FIELDS = {
     vol.Optional(ATTR_BARCODES): _barcodes,
     vol.Optional(ATTR_OPENED_ON): _date,
     vol.Optional(ATTR_DAYS_AFTER_OPENING): _optional(_keeps_days),
+    vol.Optional(ATTR_BATCHES): _batches,
 }
 
 UPDATE_SCHEMA = vol.Schema(ITEM_FIELDS)
@@ -234,6 +254,7 @@ class Inventory:
             ATTR_BARCODES: data.get(ATTR_BARCODES) or [],
             ATTR_OPENED_ON: data.get(ATTR_OPENED_ON),
             ATTR_DAYS_AFTER_OPENING: data.get(ATTR_DAYS_AFTER_OPENING),
+            ATTR_BATCHES: data.get(ATTR_BATCHES) or [],
             "created": now,
             "updated": now,
             # Link to the shopping-list entry this integration created, if any.

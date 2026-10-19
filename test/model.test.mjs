@@ -1,8 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
+  adjusted,
   applyFilter,
+  batchesOf,
+  batchFields,
   boughtAmount,
   buyAmount,
   chipValues,
@@ -15,13 +19,18 @@ import {
   itemStatus,
   looksLikeBarcode,
   matchesQuery,
+  normBatches,
   openPackFinished,
   parseBarcodes,
   presentValues,
+  putBatches,
   scoped,
   sortItems,
   stepFor,
+  stockChanges,
+  takeBatches,
   todayISO,
+  totalOf,
 } from "../src/model.ts";
 import { labelFor, localize } from "../src/localize.ts";
 
@@ -247,4 +256,67 @@ test("using up the open pack clears its date, like the integration", () => {
   assert.ok(openPackFinished(rice, 1.5, 0));
   // Floating point: 0.3 / 0.1 is not exactly 3.
   assert.ok(openPackFinished(item("k", "Kg", { unit: "kg", restock_quantity: 0.1, ...opened }), 0.3, 0.2));
+});
+
+
+// The same vectors tests/test_logic.py runs against logic.py: the card's instant update and the integration must agree.
+const VECTORS = JSON.parse(readFileSync(new URL("./batch-vectors.json", import.meta.url), "utf8"));
+
+test("batches: implicit single, normalise, take and put like the integration", () => {
+  for (const c of VECTORS.of) assert.deepEqual(batchesOf(c.item), c.out, JSON.stringify(c.item));
+  for (const c of VECTORS.norm) assert.deepEqual(normBatches(c.in), c.out, JSON.stringify(c.in));
+  for (const c of VECTORS.take) assert.deepEqual(takeBatches(c.in, c.amount), c.out, `take ${c.amount} from ${JSON.stringify(c.in)}`);
+  for (const c of VECTORS.put) assert.deepEqual(putBatches(c.in, c.amount, c.expiry), c.out, `put ${c.amount} ${c.expiry} on ${JSON.stringify(c.in)}`);
+  for (const c of VECTORS.fields) assert.deepEqual(batchFields(c.in), c.out, JSON.stringify(c.in));
+  assert.equal(totalOf([{ quantity: 0.1, expiry: null }, { quantity: 0.2, expiry: "2026-10-25" }]), 0.3);
+});
+
+test("stock changes with batches are the integration's", () => {
+  for (const c of VECTORS.changes) assert.deepEqual(stockChanges(c.item, c.changes), c.out, c.name);
+});
+
+const mince = item("m", "Minced beef", {
+  unit: "pack", quantity: 3, expiry: "2026-10-09", batches: [{ quantity: 1, expiry: "2026-10-09" }, { quantity: 2, expiry: "2026-11-16" }],
+});
+
+test("- on an item with batches takes from the first-expiring one", () => {
+  const less = adjusted(mince, -1);
+  assert.equal(less.quantity, 2);
+  assert.equal(less.expiry, "2026-11-16");
+  assert.deepEqual(less.batches, []);
+  const more = adjusted(mince, 1);
+  assert.equal(more.quantity, 4);
+  assert.equal(more.expiry, "2026-10-09");
+  assert.deepEqual(more.batches, [{ quantity: 1, expiry: "2026-10-09" }, { quantity: 3, expiry: "2026-11-16" }]);
+  // Nothing below zero, and a plain item moves like it always did.
+  assert.equal(adjusted(mince, -9).quantity, 0);
+  assert.equal(adjusted(mince, -9).expiry, "2026-10-09");
+  const plain = item("p", "Peas", { quantity: 2, expiry: "2026-12-01" });
+  assert.deepEqual([adjusted(plain, -1).quantity, adjusted(plain, -1).expiry, adjusted(plain, 3).quantity], [1, "2026-12-01", 5]);
+  assert.equal(adjusted(plain, -1).batches, undefined);
+  // The row's status follows the new first batch.
+  assert.ok(itemStatus(mince, "2026-10-08", 3).soon);
+  assert.ok(!itemStatus(adjusted(mince, -1), "2026-10-08", 3).soon);
+});
+
+test("using up the open pack with batches clears its date", () => {
+  const opened = { ...mince, opened_on: "2026-10-05", days_after_opening: 10 };
+  // The open pack is in the first batch (one pack): taking one uses it up.
+  const next = adjusted(opened, -1);
+  assert.equal(next.opened_on, null);
+  // Buying more joins the latest batch and keeps the open pack.
+  assert.equal(adjusted(opened, 1).opened_on, "2026-10-05");
+  // Two packs in the first batch: one of them is the open one, and taking one still uses it up.
+  const two = { ...opened, quantity: 4, batches: [{ quantity: 2, expiry: "2026-10-09" }, { quantity: 2, expiry: "2026-11-16" }] };
+  assert.equal(adjusted(two, -1).opened_on, null);
+  // Taking part of a weighed open tub keeps it.
+  const feta = item("f", "Feta", {
+    unit: "g", restock_quantity: 400, quantity: 1200, opened_on: "2026-10-05", expiry: "2026-10-09",
+    batches: [{ quantity: 800, expiry: "2026-10-09" }, { quantity: 400, expiry: "2026-11-16" }],
+  });
+  assert.equal(adjusted(feta, -100).opened_on, "2026-10-05");
+  assert.equal(adjusted(feta, -500).opened_on, null);
+  // From nothing: sealed, and the new date comes with it.
+  const empty = item("e", "Empty", { unit: "pack", quantity: 0, expiry: "2026-10-01", opened_on: "2026-09-20" });
+  assert.equal(stockChanges(empty, { batches: [{ quantity: 2, expiry: "2026-12-24" }] }).opened_on, null);
 });

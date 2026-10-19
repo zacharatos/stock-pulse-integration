@@ -251,13 +251,162 @@ def open_pack_finished(item: dict[str, Any], before: float, after: float) -> boo
     return size is not None and packs_left(after, size) < packs_left(before, size)
 
 
-def stock_changes(item: dict[str, Any], changes: dict[str, Any]) -> dict[str, Any]:
-    """What an update really stores: the same changes, plus opened_on dropped once the open pack is used up.
+def _day(value: Any) -> str | None:
+    """The date part of an ISO date, or None for no date."""
+    return str(value)[:10] if value else None
 
-    An opened_on in the update itself always wins (a lower quantity and a new opening date together).
+
+def norm_batches(batches: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Batches as stored: rounded, empty ones dropped, one per date, dated first and soonest first.
+
+    The undated batch (at most one) comes last, because a date you don't know is not the first to go.
     """
+    merged: dict[str | None, float] = {}
+    for batch in batches or []:
+        quantity = round(float(batch.get("quantity") or 0), 3)
+        if quantity > 0:
+            day = _day(batch.get("expiry"))
+            merged[day] = round(merged.get(day, 0.0) + quantity, 3)
+    return [{"quantity": q, "expiry": d} for d, q in sorted(merged.items(), key=lambda kv: (kv[0] is None, kv[0] or ""))]
+
+
+def batches_of(item: dict[str, Any]) -> list[dict[str, Any]]:
+    """An item's batches: the stored list when it has two or more, else the item itself as one batch.
+
+    Items stored before batches existed have no list at all, which is the same thing.
+    """
+    stored = item.get("batches") or []
+    if len(stored) >= 2:
+        return [dict(b) for b in stored]
+    return [{"quantity": float(item.get("quantity") or 0), "expiry": _day(item.get("expiry"))}]
+
+
+def take_batches(batches: list[dict[str, Any]], amount: float) -> list[dict[str, Any]]:
+    """Use up `amount`, first-expiring batch first and carrying on into the next. More than there is leaves none."""
+    left = round(float(amount), 3)
+    taken: list[dict[str, Any]] = []
+    for batch in norm_batches(batches):
+        if left >= batch["quantity"]:
+            left = round(left - batch["quantity"], 3)
+        else:
+            taken.append({**batch, "quantity": round(batch["quantity"] - left, 3)})
+            left = 0.0
+    return taken
+
+
+def put_batches(batches: list[dict[str, Any]], amount: float, expiry: str | None = None) -> list[dict[str, Any]]:
+    """Add `amount`. With a date it joins the batch with that date or starts one; without, the latest batch.
+
+    The latest is the last one: a stock-up you didn't date is most likely the newest, and for a plain
+    item that is exactly "+ keeps the date".
+    """
+    result = norm_batches(batches)
+    day = _day(expiry)
+    target = next((b for b in result if b["expiry"] == day), None) if day else (result[-1] if result else None)
+    if target is not None:
+        target["quantity"] = round(target["quantity"] + float(amount), 3)
+    else:
+        result.append({"quantity": round(float(amount), 3), "expiry": day})
+    return norm_batches(result)
+
+
+def batch_fields(batches: list[dict[str, Any]]) -> dict[str, Any]:
+    """The fields an item stores for a list of batches: the list itself (two or more), the total, the earliest date.
+
+    One batch collapses back into a plain item; none leaves the item empty and its date as it was.
+    """
+    result = norm_batches(batches)
+    if len(result) >= 2:
+        return {"batches": result, "quantity": round(sum(b["quantity"] for b in result), 3), "expiry": result[0]["expiry"]}
+    if result:
+        return {"batches": [], "quantity": result[0]["quantity"], "expiry": result[0]["expiry"]}
+    return {"batches": [], "quantity": 0.0}
+
+
+def _scalar_batches(item: dict[str, Any], changes: dict[str, Any]) -> tuple[list[dict[str, Any]], str | None]:
+    """An item's batches after a plain quantity and/or expiry change, and the date its first batch has now.
+
+    A new expiry re-dates the first batch; a new quantity is the difference against the total, taken from
+    the first-expiring batch or put onto the latest.
+    """
+    result = norm_batches(batches_of(item))
+    first = result[0]["expiry"] if result else _day(item.get("expiry"))
+    if "expiry" in changes and result:
+        first = _day(changes["expiry"])
+        result = norm_batches([{**result[0], "expiry": first}, *result[1:]])
+    if "quantity" in changes:
+        total = round(sum(b["quantity"] for b in result), 3)
+        wanted = round(float(changes["quantity"] or 0), 3)
+        if wanted < total:
+            result = take_batches(result, total - wanted)
+        elif wanted > total:
+            result = put_batches(result, wanted - total)
+    return result, first
+
+
+def _first_batch_finished(item: dict[str, Any], before: list[dict[str, Any]], after: list[dict[str, Any]], first: str | None) -> bool:
+    """Whether a change of batches used up the open pack, which is in the first-expiring batch.
+
+    Stock that comes back from nothing is sealed. A change that doesn't lower the total used nothing
+    (moving stock between batches, correcting a date). Otherwise it is the pack rule applied to the batch
+    that was first, found again by its date.
+    """
+    total_before = round(sum(b["quantity"] for b in before), 3)
+    total_after = round(sum(b["quantity"] for b in after), 3)
+    if total_before <= 0:
+        return open_pack_finished(item, 0.0, total_after)
+    if total_after >= total_before:
+        return False
+    in_use = before[0]["quantity"]
+    left = next((b["quantity"] for b in after if b["expiry"] == first), 0.0)
+    return open_pack_finished(item, in_use, left)
+
+
+def stock_changes(item: dict[str, Any], changes: dict[str, Any]) -> dict[str, Any]:
+    """What an update really stores for the stock fields, and opened_on once the open pack is used up.
+
+    * `batches` in the update wins: quantity and expiry are then the total and the earliest date, whatever
+      the update says.
+    * On an item that has batches, `quantity` is a difference against the total (a decrease is taken from
+      the first-expiring batch, an increase joins the latest) and `expiry` re-dates the first batch.
+    * A plain item is stored as given.
+
+    An opened_on in the update itself always wins; otherwise it is dropped once the open pack is used up
+    (the open pack is the first batch, which is used first).
+    """
+    has_batches = len(item.get("batches") or []) >= 2
+    if "batches" in changes or (has_batches and ("quantity" in changes or "expiry" in changes)):
+        before = norm_batches(batches_of(item))
+        first = before[0]["expiry"] if before else _day(item.get("expiry"))
+        if "batches" in changes:
+            after = norm_batches(changes["batches"])
+        else:
+            after, first = _scalar_batches(item, changes)
+        stored = {k: v for k, v in changes.items() if k not in ("batches", "quantity", "expiry")}
+        stored.update(batch_fields(after))
+        if "opened_on" not in changes and _first_batch_finished({**item, **stored}, before, after, first):
+            stored["opened_on"] = None
+        return stored
     if "quantity" in changes and "opened_on" not in changes and open_pack_finished(
         {**item, **changes}, float(item.get("quantity") or 0), float(changes["quantity"] or 0)
     ):
         return {**changes, "opened_on": None}
     return changes
+
+
+def repair_batches(item: dict[str, Any]) -> dict[str, Any] | None:
+    """The fields that put an item's batches back in step with its quantity and expiry, or None when they are.
+
+    A release without batches (a HACS rollback) edits only quantity and expiry, so the list can fall behind.
+    Those two win: the date re-dates the first batch, the quantity is taken or put as a difference.
+    """
+    if not item.get("batches"):
+        return None
+    stored = norm_batches(item["batches"])
+    if len(stored) >= 2:
+        batches, _ = _scalar_batches({**item, "batches": stored}, {"quantity": item.get("quantity"), "expiry": item.get("expiry")})
+    else:
+        batches = [{"quantity": item.get("quantity"), "expiry": item.get("expiry")}]
+    fixed = batch_fields(batches)
+    changes = {key: value for key, value in fixed.items() if item.get(key) != value}
+    return changes or None

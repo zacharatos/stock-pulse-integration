@@ -8,6 +8,8 @@ from datetime import timedelta
 import logging
 from typing import Any
 
+import voluptuous as vol
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
@@ -23,16 +25,19 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     ATTR_BARCODES,
+    ATTR_BATCHES,
     ATTR_OPENED_ON,
     ATTR_QUANTITY,
     CONF_AUTO_ADD,
     CONF_AUTO_RESTOCK,
+    CONF_BATCHES,
     CONF_EXPIRING_DAYS,
     CONF_MATCH_BY_NAME,
     CONF_REMOVE_COMPLETED,
     CONF_SHOPPING_LIST,
     DEFAULT_AUTO_ADD,
     DEFAULT_AUTO_RESTOCK,
+    DEFAULT_BATCHES,
     DEFAULT_CATEGORIES,
     DEFAULT_EXPIRING_DAYS,
     DEFAULT_LOCATIONS,
@@ -43,11 +48,23 @@ from .const import (
     EVENT_ADDED_TO_SHOPPING_LIST,
     EVENT_LOW_STOCK,
     EVENT_RESTOCKED,
+    MAX_BATCHES,
     SIGNAL_UPDATED,
     VERSION,
 )
 from .inventory import Inventory
-from .logic import buy_amount, is_low, norm_name, parse_summary, shopping_summary, stock_changes
+from .logic import (
+    batch_fields,
+    batches_of,
+    buy_amount,
+    is_low,
+    norm_name,
+    parse_summary,
+    put_batches,
+    repair_batches,
+    shopping_summary,
+    stock_changes,
+)
 from .shopping import ShoppingList
 
 _LOGGER = logging.getLogger(__name__)
@@ -82,6 +99,7 @@ class StockPulseManager:
         self.match_by_name: bool = entry_option(entry, CONF_MATCH_BY_NAME, DEFAULT_MATCH_BY_NAME)
         self.remove_completed: bool = entry_option(entry, CONF_REMOVE_COMPLETED, DEFAULT_REMOVE_COMPLETED)
         self.expiring_days: int = int(entry_option(entry, CONF_EXPIRING_DAYS, DEFAULT_EXPIRING_DAYS))
+        self.batches: bool = entry_option(entry, CONF_BATCHES, DEFAULT_BATCHES)
         self._lock = asyncio.Lock()
         self._unsubs: list[Any] = []
         self._debouncer = Debouncer(
@@ -104,6 +122,7 @@ class StockPulseManager:
 
     async def async_setup(self) -> None:
         await self.inventory.async_load()
+        self._repair_batches()
         self._unsubs.append(self.inventory.async_add_listener(self._notify))
         # Expiry depends on the date, so sensors refresh just after midnight.
         self._unsubs.append(
@@ -122,6 +141,16 @@ class StockPulseManager:
             async_track_time_interval(self.hass, self._interval, RECONCILE_INTERVAL)
         )
         self._unsubs.append(async_at_started(self.hass, self._started))
+
+    def _repair_batches(self) -> None:
+        """Batches that fell behind quantity and expiry (edited by a release without batches) follow them again."""
+        repaired = False
+        for item in self.inventory.items.values():
+            if fix := repair_batches(item):
+                item.update(fix)
+                repaired = True
+        if repaired:
+            self.inventory.async_changed()
 
     async def async_unload(self) -> None:
         for unsub in self._unsubs:
@@ -161,6 +190,7 @@ class StockPulseManager:
                 "auto_add": self.auto_add,
                 "auto_restock": self.auto_restock,
                 "expiring_days": self.expiring_days,
+                "batches": self.batches,
             },
             "units": DEFAULT_UNITS,
             "locations": DEFAULT_LOCATIONS,
@@ -181,6 +211,9 @@ class StockPulseManager:
     # ---- operations -----------------------------------------------------------
 
     async def async_add_item(self, data: dict[str, Any]) -> dict[str, Any]:
+        if data.get(ATTR_BATCHES):
+            # Batches decide the total and the earliest date, whatever quantity and expiry say.
+            data = {**data, **batch_fields(data[ATTR_BATCHES])}
         item = self.inventory.create(data)
         self._claim_barcodes(item)
         await self._after_change(item, None)
@@ -191,6 +224,8 @@ class StockPulseManager:
         before = deepcopy(item)
         # Used up the open pack (or ran out and restocked): its Opened date goes with it.
         changes = stock_changes(before, changes)
+        if len(changes.get(ATTR_BATCHES) or []) > MAX_BATCHES:
+            raise vol.Invalid(f"at most {MAX_BATCHES} batches per item")
         self.inventory.patch(item["id"], changes)
         if ATTR_BARCODES in changes:
             self._claim_barcodes(item)
@@ -239,8 +274,11 @@ class StockPulseManager:
             result["source"] = source if result["product"] else None
         return result
 
-    async def async_adjust(self, ref: str, amount: float) -> dict[str, Any]:
+    async def async_adjust(self, ref: str, amount: float, expiry: str | None = None) -> dict[str, Any]:
+        """Add to or take from the quantity. Added stock with a date joins the batch with that date, or starts one."""
         item = self.get(ref)
+        if expiry and amount > 0:
+            return await self.async_update_item(item["id"], {ATTR_BATCHES: put_batches(batches_of(item), amount, expiry)})
         quantity = max(0.0, round(float(item[ATTR_QUANTITY]) + amount, 3))
         return await self.async_update_item(item["id"], {ATTR_QUANTITY: quantity})
 
@@ -483,7 +521,9 @@ class StockPulseManager:
             # The old batch is gone, so its best-before date is too, and the new packs are sealed.
             item["expiry"] = None
             item[ATTR_OPENED_ON] = None
-        item[ATTR_QUANTITY] = round(float(item[ATTR_QUANTITY]) + amount, 3)
+        quantity = round(float(item[ATTR_QUANTITY]) + amount, 3)
+        # Bought stock joins the latest batch: a ticked-off entry carries no date.
+        item.update(stock_changes(item, {ATTR_QUANTITY: quantity}) if item.get(ATTR_BATCHES) else {ATTR_QUANTITY: quantity})
         item["shopping_dismissed"] = False
         item["updated"] = dt_util.utcnow().isoformat()
 

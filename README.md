@@ -4,6 +4,7 @@ A household inventory for Home Assistant, with a shopping list that fills itself
 
 - Keep count of what you have at home: quantity and unit (pieces, packs, rolls, bottles, kg…), category, location (pantry, fridge, **freezer**…), best-before date, notes.
 - **Opened it?** Things that keep only a few days once open (cold cuts, sauces, milk) can say so: tap **Opened** in the item's sheet, and *Expiring soon* follows the open pack instead of a best-before date months away.
+- **Two packs with different dates?** Turn on **Batches** in the options and an item can hold several best-before dates: the oldest is used first, and *Expiring soon* follows it.
 - Give an item a **threshold** and it goes on your shopping list by itself when stock drops to it.
 - **Tick it off the shopping list** when you buy it and the bought amount is added back to the inventory.
 - A card that looks at home next to the built-in cards: search and quick add, filter chips, grouping, +/- steppers, and an edit sheet. English and Greek.
@@ -55,7 +56,7 @@ Minimum Home Assistant version: 2025.7.
 - **Run out and restock** clears the old best-before date, since that batch is gone.
 - Entries that were already ticked off when you set the integration up are treated as history, not purchases.
 
-Every rule can be switched in **Settings → Devices & services → Stock Pulse → Configure**: shopping list, add low items, restock when bought, match hand-typed entries, remove bought entries from the list, and how many days count as "expiring soon".
+Every rule can be switched in **Settings → Devices & services → Stock Pulse → Configure**: shopping list, add low items, restock when bought, match hand-typed entries, remove bought entries from the list, how many days count as "expiring soon", and batches.
 
 Works with any to-do integration that supports adding, updating and removing items (Shopping list, Local to-do, and most cloud lists).
 
@@ -112,6 +113,18 @@ Give an item **Keeps after opening (days)**, the line on the label that says "ke
 - Using the open one up (− on a counted item, or a whole pack's worth of a weighed item that has a buy amount) clears the date, and **Opened** is offered again for the next pack. Eating part of it (1.5 → 1.4, or 100 g of a 400 g tub) keeps it.
 - The *Opened on* date can be corrected in the sheet, and both fields can be set from actions (`opened_on`, `days_after_opening`).
 
+## Batches
+
+Two packs of mince frozen on different days, or yoghurts from two shops: one date per item hides the older one. Turn on **Batches** (**Settings → Devices & services → Stock Pulse → Configure**; it is off by default) and an item's sheet gets **Add a batch**. The item then lists its batches, each with a quantity and a best-before date, and the rest works as before:
+
+- The item's **quantity is the total** and its **best-before the earliest date**, so low stock, the shopping list, the sensors, sorting and the *Expiring* chip need nothing new. The row shows just those two.
+- **− takes from the first-expiring batch**, then the next. **+** on the row and an entry ticked off the shopping list join the **latest** batch without asking for a date (new stock rarely expires sooner); in the sheet, **Bought** adds a row for you to date, and **Save** keeps it.
+- Take the last pack of a batch and it is gone; with one batch left the item is a plain item again. Two packs with the same date are one batch, and an item holds at most 10.
+- **Opened** stays one date per item and means the pack in use, which is in the first-expiring batch: using that pack up clears it, as above. If you add a batch that expires *earlier* than the open one, the open pack is still assumed to be in the earliest batch.
+- With the option on, `add_item` with a date for an item you already have starts a batch for it; with it off the date replaces the old one, as it always did. `adjust_quantity` takes an `expiry` for the same reason: `amount: 6` with `expiry: 2026-12-01` adds a batch. Both work whatever the option says for items that already hold batches, which always show them.
+- Actions can set the whole list: `batches: [{quantity: 1, expiry: "2026-10-25"}, {quantity: 2, expiry: "2026-11-30"}]` (quantity and expiry are then derived, whatever they say).
+- Rolling back to an older release is safe: it still reads the correct quantity and date, and when 1.5 loads again it brings the batches back in step with whatever you changed in between.
+
 ## Scanning barcodes
 
 The **barcode button** in the card's header opens a barcode scanner. Point the phone at the barcode on a pack:
@@ -134,7 +147,7 @@ Built-in units, categories and locations are translated; you can also type your 
 
 ## Sensors
 
-Each inventory gets four sensors, each with an `items` attribute listing the matching items (with `expiry`, the best-before date, and `use_by`, the date that counts once a pack is open):
+Each inventory gets four sensors, each with an `items` attribute listing the matching items (with `expiry`, the best-before date, and `use_by`, the date that counts once a pack is open; items that hold several dates also list their `batches`, and `expiry` is the earliest):
 
 | Sensor | Counts |
 | --- | --- |
@@ -149,9 +162,9 @@ All take an optional `inventory` (needed only if you have several). `item` is a 
 
 | Action | Use |
 | --- | --- |
-| `stock_pulse.add_item` | Add an item; if one with that name (or that `barcode`) exists, its quantity is increased. |
-| `stock_pulse.update_item` | Change any field. `barcode` adds one barcode to the item; `barcodes` replaces the list. |
-| `stock_pulse.adjust_quantity` | `amount: -1` when you finish one, `+6` when you unpack. Great on an NFC tag. |
+| `stock_pulse.add_item` | Add an item; if one with that name (or that `barcode`) exists, its quantity is increased. `batches` sets several quantity and best-before pairs at once. |
+| `stock_pulse.update_item` | Change any field. `barcode` adds one barcode to the item; `barcodes` replaces the list; `batches` replaces its batches. |
+| `stock_pulse.adjust_quantity` | `amount: -1` when you finish one, `+6` when you unpack. Great on an NFC tag. A positive amount can carry the `expiry` of what you add (its own batch when the date is new). |
 | `stock_pulse.remove_item` | Delete an item. |
 | `stock_pulse.add_to_shopping_list` | Put an item on the list now. |
 | `stock_pulse.sync_shopping_list` | Read the list now (it is also read on every change and every 10 minutes). |
@@ -198,7 +211,7 @@ actions:
 npm install
 npm run typecheck && npm test && npm run build   # card → custom_components/stock_pulse/frontend/
 bash scripts/install-test-deps.sh && pytest     # integration
-python3 -m http.server 8765                      # then open /test/harness.html (?dark=1, ?lang=el, ?missing=1)
+python3 -m http.server 8765                      # then open /test/harness.html (?dark=1, ?lang=el, ?missing=1, ?batches=1)
 pwsh scripts/deploy-dev.ps1                      # maintainer: try a build in your own HA before tagging (Samba share)
 ```
 

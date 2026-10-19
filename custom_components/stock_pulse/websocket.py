@@ -15,7 +15,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import DOMAIN, SIGNAL_UPDATED
 from .helpers import loaded_managers, resolve_manager
-from .inventory import ADD_SCHEMA, UPDATE_SCHEMA
+from .inventory import ADD_SCHEMA, UPDATE_SCHEMA, valid_date
 from .manager import StockPulseManager
 
 INVENTORY = vol.Optional("inventory")
@@ -129,12 +129,14 @@ async def ws_remove(hass: HomeAssistant, manager: StockPulseManager, msg: dict[s
         INVENTORY: str,
         vol.Required("item_id"): str,
         vol.Required("amount"): vol.Coerce(float),
+        # For a positive amount: the best-before date of what is added (its own batch when new).
+        vol.Optional("expiry"): vol.Any(None, str),
     }
 )
 @websocket_api.async_response
 @_guarded
 async def ws_adjust(hass: HomeAssistant, manager: StockPulseManager, msg: dict[str, Any]) -> Any:
-    return await manager.async_adjust(msg["item_id"], msg["amount"])
+    return await manager.async_adjust(msg["item_id"], msg["amount"], valid_date(msg.get("expiry")))
 
 
 @websocket_api.websocket_command(

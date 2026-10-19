@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Final
 
 DOMAIN: Final = "stock_pulse"
-VERSION: Final = "1.4.0"
+VERSION: Final = "1.5.0"
 
 STORAGE_VERSION: Final = 1
 
@@ -16,6 +16,7 @@ CONF_AUTO_RESTOCK: Final = "auto_restock"
 CONF_MATCH_BY_NAME: Final = "match_by_name"
 CONF_REMOVE_COMPLETED: Final = "remove_completed"
 CONF_EXPIRING_DAYS: Final = "expiring_days"
+CONF_BATCHES: Final = "batches"
 
 DEFAULT_NAME: Final = "Home"
 DEFAULT_AUTO_ADD: Final = True
@@ -23,6 +24,7 @@ DEFAULT_AUTO_RESTOCK: Final = True
 DEFAULT_MATCH_BY_NAME: Final = True
 DEFAULT_REMOVE_COMPLETED: Final = False
 DEFAULT_EXPIRING_DAYS: Final = 3
+DEFAULT_BATCHES: Final = False
 
 # Built-in keys. The card translates these; anything else is shown as typed.
 DEFAULT_UNITS: Final = [
@@ -50,6 +52,7 @@ ATTR_ICON: Final = "icon"
 ATTR_BARCODES: Final = "barcodes"
 ATTR_OPENED_ON: Final = "opened_on"
 ATTR_DAYS_AFTER_OPENING: Final = "days_after_opening"
+ATTR_BATCHES: Final = "batches"
 # Actions only: one barcode to add to an item's list.
 ATTR_BARCODE: Final = "barcode"
 ATTR_AMOUNT: Final = "amount"
@@ -72,6 +75,7 @@ EDITABLE_FIELDS: Final = (
     ATTR_BARCODES,
     ATTR_OPENED_ON,
     ATTR_DAYS_AFTER_OPENING,
+    ATTR_BATCHES,
 )
 
 # Events fired on the bus, for automations.
@@ -87,6 +91,8 @@ CARD_FILENAME: Final = "stock-pulse-card.js"
 
 # Product lookup by barcode (Open Food Facts and its sister databases). No key needed.
 MAX_BARCODES: Final = 10
+# Batches of one item (packs with their own best-before dates).
+MAX_BATCHES: Final = 10
 LOOKUP_TIMEOUT: Final = 8
 LOOKUP_USER_AGENT: Final = (
     f"StockPulse/{VERSION} (Home Assistant integration; https://github.com/zacharatos/stock-pulse-integration)"

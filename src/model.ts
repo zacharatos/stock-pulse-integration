@@ -1,6 +1,6 @@
 // Pure logic: what the card shows, decided from the snapshot and the config. No DOM here.
 
-import type { GroupBy, Item, SortBy, StockPulseCardConfig } from "./types";
+import type { Batch, GroupBy, Item, SortBy, StockPulseCardConfig } from "./types";
 
 export interface ItemStatus {
   out: boolean;
@@ -46,8 +46,11 @@ export function effectiveExpiry(item: Item): { date: string | null; byOpening: b
 /** Units that measure an amount instead of counting packs (as logic.py). */
 export const MEASURED_UNITS = ["kg", "g", "l", "ml"];
 
+/** What the open-pack rule reads from an item. */
+type PackItem = Pick<Item, "unit" | "restock_quantity" | "opened_on">;
+
 /** How much one pack holds: 1 for counted units, the buy amount for measured ones, else unknown (as logic.py). */
-export function packSize(item: Item): number | null {
+export function packSize(item: Pick<Item, "unit" | "restock_quantity">): number | null {
   if (!MEASURED_UNITS.includes(item.unit || "pcs")) return 1;
   return item.restock_quantity && item.restock_quantity > 0 ? item.restock_quantity : null;
 }
@@ -58,13 +61,147 @@ export function packsLeft(quantity: number, size: number): number {
 }
 
 /** Whether a change of quantity used up the open pack, so its Opened date no longer applies (as logic.py). */
-export function openPackFinished(item: Item, before: number, after: number): boolean {
+export function openPackFinished(item: PackItem, before: number, after: number): boolean {
   if (!item.opened_on) return false;
   if (before <= 0) return after > 0;
   if (after >= before) return false;
   if (after <= 0) return true;
   const size = packSize(item);
   return size != null && packsLeft(after, size) < packsLeft(before, size);
+}
+
+// ---- Batches: packs of one item with their own best-before dates (as logic.py) ----------------------
+
+/** Most batches one item can hold. */
+export const MAX_BATCHES = 10;
+
+/** What reading an item's batches needs. */
+export type BatchedItem = Pick<Item, "quantity" | "expiry"> & { batches?: Batch[] | null };
+
+/** What the batch rules read from an item. */
+export type StockItem = PackItem & BatchedItem;
+
+const round3 = (n: number) => Math.round(n * 1000) / 1000;
+const dayOf = (value: string | null | undefined) => (value ? String(value).slice(0, 10) : null);
+
+/** Batches as stored: rounded, empty ones dropped, one per date, dated first and soonest first, undated last. */
+export function normBatches(batches: readonly Batch[] | null | undefined): Batch[] {
+  const merged = new Map<string | null, number>();
+  for (const batch of batches ?? []) {
+    const quantity = round3(Number(batch.quantity) || 0);
+    if (quantity > 0) {
+      const date = dayOf(batch.expiry);
+      merged.set(date, round3((merged.get(date) ?? 0) + quantity));
+    }
+  }
+  const key = (date: string | null) => date ?? "";
+  return [...merged.entries()]
+    .sort(([a], [b]) => (a === null ? 1 : 0) - (b === null ? 1 : 0) || (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0))
+    .map(([expiry, quantity]) => ({ quantity, expiry }));
+}
+
+/** An item's batches: the stored list when it has two or more, else the item itself as one batch. */
+export function batchesOf(item: BatchedItem): Batch[] {
+  const stored = item.batches ?? [];
+  if (stored.length >= 2) return stored.map((b) => ({ ...b }));
+  return [{ quantity: Number(item.quantity) || 0, expiry: dayOf(item.expiry) }];
+}
+
+/** The total of some batches. */
+export const totalOf = (batches: readonly Batch[]) => round3(batches.reduce((sum, b) => sum + (Number(b.quantity) || 0), 0));
+
+/** Use up an amount, first-expiring batch first and carrying on into the next. More than there is leaves none. */
+export function takeBatches(batches: readonly Batch[], amount: number): Batch[] {
+  let left = round3(amount);
+  const kept: Batch[] = [];
+  for (const batch of normBatches(batches)) {
+    if (left >= batch.quantity) left = round3(left - batch.quantity);
+    else {
+      kept.push({ ...batch, quantity: round3(batch.quantity - left) });
+      left = 0;
+    }
+  }
+  return kept;
+}
+
+/** Add an amount. With a date it joins the batch with that date or starts one; without, the latest batch. */
+export function putBatches(batches: readonly Batch[], amount: number, expiry: string | null = null): Batch[] {
+  const result = normBatches(batches);
+  const date = dayOf(expiry);
+  const target = date ? result.find((b) => b.expiry === date) : result[result.length - 1];
+  if (target) target.quantity = round3(target.quantity + amount);
+  else result.push({ quantity: round3(amount), expiry: date });
+  return normBatches(result);
+}
+
+/** The fields an item stores for some batches: the list (two or more), the total and the earliest date. */
+export function batchFields(batches: readonly Batch[]): { batches: Batch[]; quantity: number; expiry?: string | null } {
+  const result = normBatches(batches);
+  if (result.length >= 2) return { batches: result, quantity: totalOf(result), expiry: result[0].expiry };
+  if (result.length) return { batches: [], quantity: result[0].quantity, expiry: result[0].expiry };
+  return { batches: [], quantity: 0 };
+}
+
+/** An item's batches after a plain quantity and/or expiry change, and the date its first batch has now. */
+function scalarBatches(item: StockItem, changes: Record<string, unknown>): [Batch[], string | null] {
+  let result = normBatches(batchesOf(item));
+  let first = result.length ? result[0].expiry : dayOf(item.expiry);
+  if ("expiry" in changes && result.length) {
+    first = dayOf(changes.expiry as string | null);
+    result = normBatches([{ ...result[0], expiry: first }, ...result.slice(1)]);
+  }
+  if ("quantity" in changes) {
+    const total = totalOf(result);
+    const wanted = round3(Number(changes.quantity) || 0);
+    if (wanted < total) result = takeBatches(result, total - wanted);
+    else if (wanted > total) result = putBatches(result, wanted - total);
+  }
+  return [result, first];
+}
+
+/** Whether a change of batches used up the open pack, which is in the first-expiring batch (as logic.py). */
+function firstBatchFinished(item: PackItem, before: Batch[], after: Batch[], first: string | null): boolean {
+  const totalBefore = totalOf(before);
+  const totalAfter = totalOf(after);
+  if (totalBefore <= 0) return openPackFinished(item, 0, totalAfter);
+  if (totalAfter >= totalBefore) return false;
+  const left = after.find((b) => b.expiry === first)?.quantity ?? 0;
+  return openPackFinished(item, before[0].quantity, left);
+}
+
+/**
+ * What an update really stores for the stock fields, and opened_on once the open pack is used up (as
+ * logic.py stock_changes). `batches` wins over quantity and expiry; on an item with batches a quantity is
+ * a difference against the total and an expiry re-dates the first batch; a plain item is stored as given.
+ */
+export function stockChanges(item: StockItem, changes: Record<string, unknown>): Record<string, unknown> {
+  const hasBatches = (item.batches?.length ?? 0) >= 2;
+  if ("batches" in changes || (hasBatches && ("quantity" in changes || "expiry" in changes))) {
+    const before = normBatches(batchesOf(item));
+    let first = before.length ? before[0].expiry : dayOf(item.expiry);
+    let after: Batch[];
+    if ("batches" in changes) after = normBatches(changes.batches as Batch[]);
+    else [after, first] = scalarBatches(item, changes);
+    const stored: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(changes)) if (!["batches", "quantity", "expiry"].includes(key)) stored[key] = value;
+    Object.assign(stored, batchFields(after));
+    if (!("opened_on" in changes) && firstBatchFinished({ ...item, ...stored } as PackItem, before, after, first)) stored.opened_on = null;
+    return stored;
+  }
+  if (
+    "quantity" in changes &&
+    !("opened_on" in changes) &&
+    openPackFinished({ ...item, ...changes } as PackItem, Number(item.quantity) || 0, Number(changes.quantity) || 0)
+  ) {
+    return { ...changes, opened_on: null };
+  }
+  return changes;
+}
+
+/** The item after + or - of some amount, as the integration will store it (first-expiring batch used first). */
+export function adjusted(item: Item, delta: number): Item {
+  const quantity = Math.max(0, round3(item.quantity + delta));
+  return { ...item, ...stockChanges(item, { quantity }) } as Item;
 }
 
 export function itemStatus(item: Item, today: string, soonDays: number): ItemStatus {

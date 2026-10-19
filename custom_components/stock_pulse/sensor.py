@@ -119,6 +119,8 @@ class StockSensor(SensorEntity):
                     # The date that counts: the best-before, or sooner once an opened pack's days run out.
                     "use_by": effective_expiry(i)[0],
                     "on_shopping_list": bool(i.get("shopping")),
+                    # Only items that hold more than one date: expiry and use_by are the earliest.
+                    **({"batches": i["batches"]} if i.get("batches") else {}),
                 }
                 for i in items[:MAX_LISTED]
             ]

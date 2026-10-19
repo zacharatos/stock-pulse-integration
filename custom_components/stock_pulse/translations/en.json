@@ -11,7 +11,8 @@
           "auto_restock": "Restock when bought",
           "match_by_name": "Also restock items typed into the list by hand",
           "remove_completed": "Remove bought items from the list",
-          "expiring_days": "Expiring soon (days)"
+          "expiring_days": "Expiring soon (days)",
+          "batches": "Batches: several best-before dates per item"
         },
         "data_description": {
           "name": "For example Home or Holiday house. Each inventory has its own items and sensors.",
@@ -20,7 +21,8 @@
           "auto_restock": "Ticking an entry off the shopping list adds the bought amount back to the item.",
           "match_by_name": "A ticked-off entry such as “Milk” or “Milk (2 bottles)” restocks the item with that name.",
           "remove_completed": "Delete an entry from the list once it has been restocked, instead of leaving it ticked off.",
-          "expiring_days": "Items whose date is this close count as expiring soon."
+          "expiring_days": "Items whose date is this close count as expiring soon.",
+          "batches": "An item can hold packs with their own dates, used oldest first. Adds Add a batch to the item's sheet."
         }
       }
     },
@@ -38,7 +40,8 @@
           "auto_restock": "Restock when bought",
           "match_by_name": "Also restock items typed into the list by hand",
           "remove_completed": "Remove bought items from the list",
-          "expiring_days": "Expiring soon (days)"
+          "expiring_days": "Expiring soon (days)",
+          "batches": "Batches: several best-before dates per item"
         },
         "data_description": {
           "shopping_list": "A to-do list (for example the built-in Shopping list). Leave empty to use the inventory on its own.",
@@ -46,7 +49,8 @@
           "auto_restock": "Ticking an entry off the shopping list adds the bought amount back to the item.",
           "match_by_name": "A ticked-off entry such as “Milk” or “Milk (2 bottles)” restocks the item with that name.",
           "remove_completed": "Delete an entry from the list once it has been restocked, instead of leaving it ticked off.",
-          "expiring_days": "Items whose date is this close count as expiring soon."
+          "expiring_days": "Items whose date is this close count as expiring soon.",
+          "batches": "An item can hold packs with their own dates, used oldest first. Adds Add a batch to the item's sheet."
         }
       }
     }
@@ -209,6 +213,10 @@
         "days_after_opening": {
           "name": "Keeps after opening",
           "description": "How many days it keeps once open (“keeps 10 days in the fridge after opening”). With an opened-on date, expiry counts from whichever comes first."
+        },
+        "batches": {
+          "name": "Batches",
+          "description": "Packs with their own best-before dates, as a list of quantity and expiry. Sets the quantity and best before; the earliest is used first."
         }
       }
     },
@@ -283,6 +291,10 @@
         "days_after_opening": {
           "name": "Keeps after opening",
           "description": "How many days it keeps once open (“keeps 10 days in the fridge after opening”). With an opened-on date, expiry counts from whichever comes first."
+        },
+        "batches": {
+          "name": "Batches",
+          "description": "Packs with their own best-before dates, as a list of quantity and expiry. Sets the quantity and best before; the earliest is used first."
         }
       }
     },
@@ -315,6 +327,10 @@
         "amount": {
           "name": "Amount",
           "description": "Added to the quantity. Use a negative number to use some up."
+        },
+        "expiry": {
+          "name": "Best before",
+          "description": "For a positive amount: the best-before date of what you add. A date the item doesn't have yet becomes its own batch."
         }
       }
     },

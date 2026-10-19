@@ -266,18 +266,20 @@ async def test_config_flow(hass, shopping_list):
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["title"] == "Cabin"
     assert result["data"]["expiring_days"] == 5
+    assert result["data"]["batches"] is False  # off unless asked for
     await hass.async_block_till_done()
 
     entry = hass.config_entries.async_entries(DOMAIN)[0]
     result = await hass.config_entries.options.async_init(entry.entry_id)
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {"auto_add": False, "auto_restock": True, "match_by_name": True,
-                            "remove_completed": False, "expiring_days": 2},
+                            "remove_completed": False, "expiring_days": 2, "batches": True},
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
     assert entry.runtime_data.shopping is None
     assert entry.runtime_data.expiring_days == 2
+    assert entry.options["batches"] is True and entry.runtime_data.batches is True
 
 
 async def test_card_is_served_and_loaded(hass, inventory, hass_client):
@@ -462,3 +464,181 @@ async def test_sheet_save_lowering_quantity(hass, inventory, hass_ws_client):
     # Lowering the quantity and dating the next pack in one save keeps the date given.
     await update({"quantity": 1, "opened_on": opened})
     assert stored["quantity"] == 1 and stored["opened_on"] == opened
+
+
+def days(n: int) -> str:
+    return (dt_util.now().date() + timedelta(days=n)).isoformat()
+
+
+async def test_batches_first_expiring_first(hass, inventory):
+    mince = await add(hass, name="Minced beef", unit="pack", location="freezer",
+                      batches=[{"quantity": 2, "expiry": days(40)}, {"quantity": 1, "expiry": days(2)}])
+    stored = manager(inventory).inventory.items[mince["id"]]
+    # The total and the earliest date drive everything; the list is kept in date order.
+    assert stored["quantity"] == 3 and stored["expiry"] == days(2)
+    assert stored["batches"] == [{"quantity": 1.0, "expiry": days(2)}, {"quantity": 2.0, "expiry": days(40)}]
+    await settle(hass)
+    soon = hass.states.get("sensor.home_expiring_soon")
+    assert soon.state == "1"
+    assert soon.attributes["items"][0]["expiry"] == days(2)
+    assert soon.attributes["items"][0]["batches"] == stored["batches"]
+
+    # Using one takes the first-expiring pack: the date moves to the next batch and it is a plain item again.
+    await adjust(hass, "Minced beef", -1)
+    assert stored["quantity"] == 2 and stored["expiry"] == days(40) and stored["batches"] == []
+    await settle(hass)
+    assert hass.states.get("sensor.home_expiring_soon").state == "0"
+
+
+async def test_adjust_with_expiry_adds_a_batch(hass, inventory, hass_ws_client):
+    item = await add(hass, name="Yoghurt", quantity=2, expiry=days(5))
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id({"type": f"{DOMAIN}/subscribe"})
+    assert (await client.receive_json())["success"]
+    first = (await client.receive_json())["event"]
+    assert first["settings"]["batches"] is False and first["items"][0]["batches"] == []
+
+    reply = await ws_call(client, {"type": f"{DOMAIN}/item/adjust", "item_id": item["id"], "amount": 3, "expiry": days(20)})
+    assert reply["success"], reply
+    assert reply["result"]["batches"] == [{"quantity": 2.0, "expiry": days(5)}, {"quantity": 3.0, "expiry": days(20)}]
+    assert reply["result"]["quantity"] == 5 and reply["result"]["expiry"] == days(5)
+
+    # The same date joins its batch; a bad date is refused; a date on a decrease is ignored.
+    reply = await ws_call(client, {"type": f"{DOMAIN}/item/adjust", "item_id": item["id"], "amount": 1, "expiry": days(20)})
+    assert reply["result"]["batches"][1] == {"quantity": 4.0, "expiry": days(20)}
+    reply = await ws_call(client, {"type": f"{DOMAIN}/item/adjust", "item_id": item["id"], "amount": 1, "expiry": "soon"})
+    assert not reply["success"] and reply["error"]["code"] == "invalid_format"
+    reply = await ws_call(client, {"type": f"{DOMAIN}/item/adjust", "item_id": item["id"], "amount": -1, "expiry": days(99)})
+    assert reply["result"]["quantity"] == 5 and len(reply["result"]["batches"]) == 2
+
+    # The action does the same, and the snapshot carries the batches.
+    await hass.services.async_call(
+        DOMAIN, "adjust_quantity", {"item": "Yoghurt", "amount": 1, "expiry": days(30)}, blocking=True
+    )
+    snapshot = manager(inventory).snapshot()
+    assert [b["expiry"] for b in snapshot["items"][0]["batches"]] == [days(5), days(20), days(30)]
+
+
+async def test_restock_joins_latest_batch(hass, inventory):
+    await add(hass, name="Mince", unit="pack", min_quantity=2, restock_quantity=6,
+              batches=[{"quantity": 1, "expiry": days(3)}, {"quantity": 1, "expiry": days(40)}])
+    await settle(hass)
+    assert [t["summary"] for t in await todo_items(hass)] == ["Mince (6 packs)"]
+    await tick(hass, "Mince (6 packs)")
+    stored = manager(inventory).inventory.find("Mince")
+    assert stored["quantity"] == 8 and stored["expiry"] == days(3)
+    assert stored["batches"] == [{"quantity": 1.0, "expiry": days(3)}, {"quantity": 7.0, "expiry": days(40)}]
+
+
+@pytest.mark.parametrize("options", [{"batches": True}, {}], ids=["on", "off"])
+async def test_add_item_with_date_adds_batch_only_when_on(hass, inventory, options):
+    await add(hass, name="Yoghurt", quantity=2, expiry=days(5))
+    item = await add(hass, name="yoghurt", quantity=3, expiry=days(20))
+    if options:
+        assert item["quantity"] == 5 and item["expiry"] == days(5)
+        assert item["batches"] == [{"quantity": 2.0, "expiry": days(5)}, {"quantity": 3.0, "expiry": days(20)}]
+    else:
+        # As before: the date you give replaces the old one.
+        assert item["quantity"] == 5 and item["expiry"] == days(20) and item["batches"] == []
+    # Without a date it just tops up, whatever the option.
+    item = await add(hass, name="yoghurt", quantity=1)
+    assert item["quantity"] == 6
+
+
+async def test_add_item_with_batches_replaces_the_list(hass, inventory):
+    await add(hass, name="Mince", quantity=1, expiry=days(5))
+    item = await add(hass, name="Mince", batches=[{"quantity": 2, "expiry": days(9)}, {"quantity": 1, "expiry": days(50)}])
+    assert item["quantity"] == 3 and item["expiry"] == days(9) and len(item["batches"]) == 2
+
+
+async def test_items_without_batches_unchanged(hass, inventory):
+    item = await add(hass, name="Oil", quantity=2, unit="bottle", expiry=days(10))
+    assert item["batches"] == [] and item["expiry"] == days(10)
+    # Stored before batches existed: no field at all.
+    stored = manager(inventory).inventory.items[item["id"]]
+    del stored["batches"]
+    await adjust(hass, "Oil", -1)
+    assert stored["quantity"] == 1 and stored["expiry"] == days(10) and "batches" not in stored
+    await adjust(hass, "Oil", 2)
+    assert stored["quantity"] == 3
+    # A date given to adjust on such an item starts a batch.
+    await hass.services.async_call(DOMAIN, "adjust_quantity", {"item": "Oil", "amount": 1, "expiry": days(30)}, blocking=True)
+    assert stored["quantity"] == 4 and len(stored["batches"]) == 2
+    assert manager(inventory).snapshot()["items"][0]["batches"] == stored["batches"]
+
+
+async def test_batches_repaired_on_load(hass, inventory):
+    item = await add(hass, name="Mince", unit="pack",
+                     batches=[{"quantity": 1, "expiry": days(3)}, {"quantity": 2, "expiry": days(40)}])
+    stored = manager(inventory).inventory.items[item["id"]]
+    # A release without batches changed the quantity and the date, and left the list behind.
+    stored["quantity"] = 5
+    stored["expiry"] = days(60)
+    await manager(inventory).inventory.async_flush()
+    assert await hass.config_entries.async_reload(inventory.entry_id)
+    await hass.async_block_till_done()
+    repaired = manager(inventory).inventory.items[item["id"]]
+    assert repaired["quantity"] == 5
+    assert sum(b["quantity"] for b in repaired["batches"]) == 5
+    assert repaired["expiry"] == repaired["batches"][0]["expiry"]
+
+
+async def test_opened_pack_with_batches(hass, inventory):
+    opened = days(-8)
+    turkey = await add(hass, name="Smoked turkey", unit="pack", days_after_opening=10, opened_on=opened,
+                       batches=[{"quantity": 2, "expiry": days(77)}, {"quantity": 2, "expiry": days(120)}])
+    stored = manager(inventory).inventory.items[turkey["id"]]
+    await settle(hass)
+    assert hass.states.get("sensor.home_expiring_soon").state == "1"
+
+    # Buying more joins the latest batch and keeps the open pack.
+    await adjust(hass, "Smoked turkey", 1)
+    assert stored["opened_on"] == opened and stored["batches"][1]["quantity"] == 3
+    # Using one leaves one pack in the first batch: the open one was used, the rest is sealed.
+    await adjust(hass, "Smoked turkey", -1)
+    assert stored["quantity"] == 4 and stored["opened_on"] is None
+    await settle(hass)
+    assert hass.states.get("sensor.home_expiring_soon").state == "0"
+
+    # Opening the next pack, then finishing the first batch: the date goes with it.
+    await hass.services.async_call(DOMAIN, "update_item", {"item": "Smoked turkey", "opened_on": opened}, blocking=True)
+    await adjust(hass, "Smoked turkey", -1)
+    assert stored["quantity"] == 3 and stored["opened_on"] is None and stored["batches"] == []
+    assert stored["expiry"] == days(120)
+
+
+async def test_batches_validation(hass, inventory):
+    too_many = [{"quantity": 1, "expiry": days(n)} for n in range(11)]
+    with pytest.raises(vol.Invalid):
+        await add(hass, name="A", batches=too_many)
+    with pytest.raises(vol.Invalid):
+        await add(hass, name="B", batches=[{"quantity": -1, "expiry": days(1)}])
+    with pytest.raises(vol.Invalid):
+        await add(hass, name="C", batches=[{"quantity": 1, "expiry": "tomorrow"}])
+    with pytest.raises(vol.Invalid):
+        await add(hass, name="D", batches=[{"quantity": 1, "color": "red"}])
+    # Ten is fine, and an eleventh date added through adjust is refused instead of dropped.
+    ten = [{"quantity": 1, "expiry": days(n)} for n in range(10)]
+    item = await add(hass, name="E", batches=ten)
+    assert len(item["batches"]) == 10
+    with pytest.raises(vol.Invalid):
+        await hass.services.async_call(DOMAIN, "adjust_quantity", {"item": "E", "amount": 1, "expiry": days(99)}, blocking=True)
+    assert manager(inventory).inventory.find("E")["quantity"] == 10
+
+
+async def test_sheet_save_sends_batches(hass, inventory, hass_ws_client):
+    item = await add(hass, name="Mince", unit="pack", expiry=days(3), quantity=2)
+    client = await hass_ws_client(hass)
+    stored = manager(inventory).inventory.items[item["id"]]
+    reply = await ws_call(client, {
+        "type": f"{DOMAIN}/item/update", "item_id": item["id"],
+        "changes": {"batches": [{"quantity": 3, "expiry": days(40)}, {"quantity": 2, "expiry": days(3)}], "quantity": 99},
+    })
+    assert reply["success"], reply
+    assert stored["quantity"] == 5 and stored["expiry"] == days(3) and len(stored["batches"]) == 2
+    # Back to one batch from the sheet: a plain item with that batch's quantity and date.
+    reply = await ws_call(client, {
+        "type": f"{DOMAIN}/item/update", "item_id": item["id"], "changes": {"batches": [{"quantity": 3, "expiry": days(40)}]},
+    })
+    assert reply["success"], reply
+    assert stored["quantity"] == 3 and stored["expiry"] == days(40) and stored["batches"] == []

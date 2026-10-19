@@ -9,9 +9,19 @@ import voluptuous as vol
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse, callback
 from homeassistant.helpers import config_validation as cv
 
-from .const import ATTR_AMOUNT, ATTR_BARCODE, ATTR_BARCODES, ATTR_INVENTORY, ATTR_ITEM, ATTR_NAME, DOMAIN
+from .const import (
+    ATTR_AMOUNT,
+    ATTR_BARCODE,
+    ATTR_BARCODES,
+    ATTR_BATCHES,
+    ATTR_EXPIRY,
+    ATTR_INVENTORY,
+    ATTR_ITEM,
+    ATTR_NAME,
+    DOMAIN,
+)
 from .helpers import resolve_manager
-from .inventory import ITEM_FIELDS
+from .inventory import ITEM_FIELDS, valid_date
 from .logic import norm_barcode
 
 SERVICE_ADD_ITEM = "add_item"
@@ -39,7 +49,9 @@ ITEM_REF = {**BASE, vol.Required(ATTR_ITEM): cv.string}
 # For add_item, an existing item with the same name is topped up instead of duplicated.
 ADD_SCHEMA = vol.Schema({**BASE, **ITEM_FIELDS, **BARCODE, vol.Required(ATTR_NAME): cv.string})
 UPDATE_SCHEMA = vol.Schema({**ITEM_REF, **ITEM_FIELDS, **BARCODE})
-ADJUST_SCHEMA = vol.Schema({**ITEM_REF, vol.Required(ATTR_AMOUNT): vol.Coerce(float)})
+ADJUST_SCHEMA = vol.Schema(
+    {**ITEM_REF, vol.Required(ATTR_AMOUNT): vol.Coerce(float), vol.Optional(ATTR_EXPIRY): valid_date}
+)
 GET_SCHEMA = vol.Schema(
     {
         **BASE,
@@ -69,11 +81,19 @@ def async_register_services(hass: HomeAssistant) -> None:
         )
         data = vol.Schema(ITEM_FIELDS)(_fields(call, existing.get(ATTR_BARCODES) if existing else None))
         if existing is not None:
-            amount = data.pop("quantity", 1.0)
             data.pop(ATTR_NAME)
-            if data:
-                await manager.async_update_item(existing["id"], data)
-            item = await manager.async_adjust(existing["id"], amount)
+            if ATTR_BATCHES in data:
+                # The batches are the stock: they replace the item's, and there is no amount to add on top.
+                data.pop("quantity", None)
+                data.pop(ATTR_EXPIRY, None)
+                item = await manager.async_update_item(existing["id"], data)
+            else:
+                amount = data.pop("quantity", 1.0)
+                # With batches on, a date on what you add starts a batch for it instead of replacing the item's.
+                expiry = data.pop(ATTR_EXPIRY) if manager.batches and amount > 0 and data.get(ATTR_EXPIRY) else None
+                if data:
+                    await manager.async_update_item(existing["id"], data)
+                item = await manager.async_adjust(existing["id"], amount, expiry)
         else:
             item = await manager.async_add_item(data)
         return {"item": item} if call.return_response else None
@@ -90,7 +110,7 @@ def async_register_services(hass: HomeAssistant) -> None:
 
     async def adjust_quantity(call: ServiceCall) -> ServiceResponse:
         manager = resolve_manager(hass, call.data.get(ATTR_INVENTORY))
-        item = await manager.async_adjust(call.data[ATTR_ITEM], call.data[ATTR_AMOUNT])
+        item = await manager.async_adjust(call.data[ATTR_ITEM], call.data[ATTR_AMOUNT], call.data.get(ATTR_EXPIRY))
         return {"item": item} if call.return_response else None
 
     async def add_to_shopping_list(call: ServiceCall) -> None:

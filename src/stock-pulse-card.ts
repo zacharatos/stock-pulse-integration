@@ -3,10 +3,13 @@ import { property, state } from "lit/decorators.js";
 import { classMap } from "lit/directives/class-map.js";
 import { styleMap } from "lit/directives/style-map.js";
 
-import type { ExternalBus, ExternalCommand, Item, ItemFields, LookupResult, Snapshot, StockPulseCardConfig } from "./types";
+import type { Batch, ExternalBus, ExternalCommand, Item, ItemFields, LookupResult, Snapshot, StockPulseCardConfig } from "./types";
 import type { HomeAssistant } from "./types";
 import {
+  MAX_BATCHES,
+  adjusted,
   applyFilter,
+  batchesOf,
   boughtAmount,
   chipValues,
   diffFields,
@@ -19,13 +22,14 @@ import {
   looksLikeBarcode,
   needsStock,
   norm,
-  openPackFinished,
+  normBatches,
   parseBarcodes,
   presentValues,
   scoped,
   sortItems,
   stepFor,
   todayISO,
+  totalOf,
   type Filter,
   type Group,
   type ItemStatus,
@@ -36,7 +40,7 @@ import { cardStyles, dialogStyles } from "./styles";
 import { defineElement } from "./register";
 import "./editor";
 
-export const VERSION = "1.4.0";
+export const VERSION = "1.5.0";
 const WS = "stock_pulse";
 const GROUP_BY = ["category", "location", "none"];
 const FILTER_BY = ["location", "category", "both", "none"];
@@ -63,11 +67,23 @@ interface ScanNote {
   amount?: number;
 }
 
+/** One line of the sheet's batches: a quantity box can be empty while it is being typed. */
+interface BatchRow {
+  quantity: number | null;
+  expiry: string | null;
+}
+
 interface DialogState {
   mode: "add" | "edit";
   id?: string;
   data: FormFields;
   original: ItemFields;
+  /** The sheet is showing batches (two or more, or one being added): quantity and expiry live in these rows. */
+  batches?: BatchRow[];
+  /** The batches the item had when the sheet opened, if it had any; to tell what changed on Save. */
+  originalBatches?: Batch[];
+  /** Bought was tapped on an item with batches: this amount is a new row waiting for its date. */
+  bought?: number;
   armed: boolean;
   busy: boolean;
   error?: string;
@@ -657,7 +673,16 @@ export class StockPulseCard extends LitElement {
 
   // ---- Dialog ---------------------------------------------------------------
 
-  private _schema(snap: Snapshot, withBarcodes: boolean, withOpened: boolean): Record<string, unknown>[] {
+  /**
+   * The sheet's fields. With batches the sheet is two forms around the batch rows: "name" above them, and
+   * "rest" below, without the quantity and date the rows hold. Otherwise "all": the one form it has always been.
+   */
+  private _schema(
+    snap: Snapshot,
+    withBarcodes: boolean,
+    withOpened: boolean,
+    part: "all" | "name" | "rest" = "all"
+  ): Record<string, unknown>[] {
     const items = snap.items;
     const options = (field: "unit" | "category" | "location", builtIn: string[], prefix: "unit" | "cat" | "loc") => {
       const custom = [...new Set(items.map((i) => i[field]).filter((v): v is string => !!v && !builtIn.includes(v)))];
@@ -670,16 +695,15 @@ export class StockPulseCard extends LitElement {
       select: { options: opts, custom_value: true, mode: "dropdown" },
     });
     const number = { number: { min: 0, step: "any", mode: "box" } };
+    const name = { name: "name", required: true, selector: { text: {} } };
+    if (part === "name") return [name];
+    const unit = { name: "unit", selector: select(options("unit", snap.units, "unit")) };
+    const keeps = { name: "days_after_opening", selector: { number: { min: 1, max: 3650, step: 1, mode: "box" } } };
+    // The batch rows hold the quantity and the date, so a grid left with one field is just that field.
+    const batched = part === "rest";
     return [
-      { name: "name", required: true, selector: { text: {} } },
-      {
-        type: "grid",
-        name: "",
-        schema: [
-          { name: "quantity", selector: number },
-          { name: "unit", selector: select(options("unit", snap.units, "unit")) },
-        ],
-      },
+      ...(batched ? [] : [name]),
+      batched ? unit : { type: "grid", name: "", schema: [{ name: "quantity", selector: number }, unit] },
       {
         type: "grid",
         name: "",
@@ -688,14 +712,7 @@ export class StockPulseCard extends LitElement {
           { name: "location", selector: select(options("location", snap.locations, "loc")) },
         ],
       },
-      {
-        type: "grid",
-        name: "",
-        schema: [
-          { name: "expiry", selector: { date: {} } },
-          { name: "days_after_opening", selector: { number: { min: 1, max: 3650, step: 1, mode: "box" } } },
-        ],
-      },
+      batched ? keeps : { type: "grid", name: "", schema: [{ name: "expiry", selector: { date: {} } }, keeps] },
       ...(withOpened ? [{ name: "opened_on", selector: { date: {} } }] : []),
       {
         type: "grid",
@@ -732,14 +749,22 @@ export class StockPulseCard extends LitElement {
     const data: ItemFields = {};
     for (const key of EDITABLE) (data as Record<string, unknown>)[key] = item[key] ?? undefined;
     const form = this._toForm(data);
+    // An item with batches opens showing them; a scanned pack is a new row there, waiting for its date.
+    const stored = item.batches ?? [];
+    const batches: BatchRow[] | undefined = stored.length >= 2 ? stored.map((b) => ({ ...b })) : undefined;
     // A known pack was scanned: one more of it, ready to confirm with Save.
-    if (scan?.amount) form.quantity = Math.round((item.quantity + scan.amount) * 1000) / 1000;
+    if (scan?.amount) {
+      if (batches) this._appendRow(batches, scan.amount);
+      else form.quantity = Math.round((item.quantity + scan.amount) * 1000) / 1000;
+    }
     await loadHaElements();
     this._dialog = {
       mode: "edit",
       id: item.id,
       data: form,
       original: data,
+      batches,
+      originalBatches: batches ? stored.map((b) => ({ ...b })) : undefined,
       armed: false,
       busy: false,
       scan,
@@ -822,7 +847,7 @@ export class StockPulseCard extends LitElement {
                         <ha-icon icon="mdi:package-variant"></ha-icon>${this._t("opened")}
                       </button>`
                     : nothing}
-                  ${bought != null
+                  ${bought != null && d.bought == null
                     ? html`<button
                         class="bought"
                         aria-label=${this._t("bought_aria", { amount: this._amountText(item, bought) })}
@@ -835,15 +860,9 @@ export class StockPulseCard extends LitElement {
                     : nothing}
                 </div>`
               : nothing}
-            <ha-form
-              .hass=${this.hass}
-              .data=${d.data}
-              .schema=${this._schema(snap, d.showBarcodes, d.showOpened)}
-              .computeLabel=${(f: { name: string }) => this._t(`f_${f.name}`)}
-              .computeHelper=${(f: { name: string }) =>
-                ["min_quantity", "restock_quantity", "barcodes"].includes(f.name) ? this._t(`h_${f.name}`) : undefined}
-              @value-changed=${this._onFormChanged}
-            ></ha-form>
+            ${d.batches
+              ? html`${this._renderForm(d, snap, "name")}${this._renderBatches(d)}${this._renderForm(d, snap, "rest")}`
+              : html`${this._renderForm(d, snap, "all")}${snap.settings.batches ? this._renderAddBatch() : nothing}`}
             ${d.error ? html`<div class="d-error">${d.error}</div>` : nothing}
           </div>
           <div class="d-foot">
@@ -879,11 +898,120 @@ export class StockPulseCard extends LitElement {
     `;
   }
 
+  private _renderForm(d: DialogState, snap: Snapshot, part: "all" | "name" | "rest"): TemplateResult {
+    return html`<ha-form
+      .hass=${this.hass}
+      .data=${d.data}
+      .schema=${this._schema(snap, d.showBarcodes, d.showOpened, part)}
+      .computeLabel=${(f: { name: string }) => this._t(`f_${f.name}`)}
+      .computeHelper=${(f: { name: string }) =>
+        ["min_quantity", "restock_quantity", "barcodes"].includes(f.name) ? this._t(`h_${f.name}`) : undefined}
+      @value-changed=${this._onFormChanged}
+    ></ha-form>`;
+  }
+
   private _onFormChanged = (ev: CustomEvent<{ value: FormFields }>) => {
     ev.stopPropagation();
-    if (!this._dialog) return;
-    this._dialog = { ...this._dialog, data: { ...ev.detail.value }, armed: false, error: undefined };
+    const d = this._dialog;
+    if (!d) return;
+    // With batches there are two forms, each holding its part of the item: keep the other's fields.
+    const data = d.batches ? { ...d.data, ...ev.detail.value } : { ...ev.detail.value };
+    this._dialog = { ...d, data, armed: false, error: undefined };
   };
+
+  // ---- Batches in the sheet --------------------------------------------------------
+
+  /** A new row for some stock, or its amount onto the last row when there is no room for another batch. */
+  private _appendRow(rows: BatchRow[], quantity: number): void {
+    if (rows.length < MAX_BATCHES) rows.push({ quantity, expiry: null });
+    else rows[rows.length - 1].quantity = Math.round(((rows[rows.length - 1].quantity ?? 0) + quantity) * 1000) / 1000;
+  }
+
+  private _unitKey(d: DialogState): string {
+    return fromFormValue(this.hass, "unit", d.data.unit, this._snap?.units ?? []) ?? "pcs";
+  }
+
+  /** Plain sheet -> batches: what it had becomes the first batch, and a second one waits for its date. */
+  private _addBatch = () => {
+    const d = this._dialog;
+    if (!d || d.busy) return;
+    const rows: BatchRow[] = d.batches
+      ? d.batches.map((r) => ({ ...r }))
+      : [{ quantity: d.data.quantity ?? null, expiry: d.data.expiry || null }];
+    if (rows.length < MAX_BATCHES) rows.push({ quantity: stepFor(this._unitKey(d)), expiry: null });
+    this._dialog = { ...d, batches: rows };
+  };
+
+  private _removeBatch(index: number): void {
+    const d = this._dialog;
+    if (!d?.batches) return;
+    const rows = d.batches.filter((_, i) => i !== index);
+    // Down to one batch is a plain item again: its quantity and date go back to the form's fields.
+    this._dialog =
+      rows.length > 1
+        ? { ...d, batches: rows, bought: undefined }
+        : { ...d, batches: undefined, bought: undefined, data: { ...d.data, quantity: rows[0].quantity ?? undefined, expiry: rows[0].expiry ?? undefined } };
+  }
+
+  private _onBatchChanged(index: number, ev: CustomEvent<{ value: { quantity?: number; expiry?: string } }>): void {
+    ev.stopPropagation();
+    const d = this._dialog;
+    if (!d?.batches) return;
+    const { quantity, expiry } = ev.detail.value;
+    const rows = d.batches.map((r, i) => (i === index ? { quantity: quantity ?? null, expiry: expiry || null } : r));
+    this._dialog = { ...d, batches: rows, error: undefined };
+  }
+
+  private _renderBatches(d: DialogState): TemplateResult {
+    const rows = d.batches ?? [];
+    const unit = this._unitKey(d);
+    const total = totalOf(rows.map((r) => ({ quantity: r.quantity ?? 0, expiry: r.expiry })));
+    const schema = [
+      {
+        type: "grid",
+        name: "",
+        schema: [
+          { name: "quantity", selector: { number: { min: 0, step: "any", mode: "box" } } },
+          { name: "expiry", selector: { date: {} } },
+        ],
+      },
+    ];
+    return html`
+      <div class="batches" role="group" aria-label=${this._t("batches")}>
+        <div class="batches-head">
+          <span class="batches-title">${this._t("batches")}</span>
+          <span class="batches-sum">${this._t("batches_summary", { qty: this._amountText({ unit }, total), n: rows.length })}</span>
+        </div>
+        <div class="batches-help">${this._t("h_batches")}</div>
+        ${rows.map(
+          (row, i) => html`
+            <div class="batch">
+              <ha-form
+                .hass=${this.hass}
+                .data=${{ quantity: row.quantity ?? undefined, expiry: row.expiry ?? undefined }}
+                .schema=${schema}
+                .computeLabel=${(f: { name: string }) => this._t(`f_${f.name}`)}
+                @value-changed=${(ev: CustomEvent<{ value: { quantity?: number; expiry?: string } }>) => this._onBatchChanged(i, ev)}
+              ></ha-form>
+              <button class="round" title=${this._t("batch_remove")} aria-label=${this._t("batch_remove")} @click=${() => this._removeBatch(i)}>
+                <ha-icon icon="mdi:close"></ha-icon>
+              </button>
+            </div>
+          `
+        )}
+        ${d.bought != null
+          ? html`<div class="batches-note">${this._t("batch_bought", { amount: this._amountText({ unit }, d.bought) })}</div>`
+          : nothing}
+        ${rows.length < MAX_BATCHES ? this._renderAddBatch() : nothing}
+      </div>
+    `;
+  }
+
+  private _renderAddBatch(): TemplateResult {
+    return html`<button class="link-btn" aria-label=${this._t("batch_add_aria")} @click=${this._addBatch}>
+      <ha-icon icon="mdi:plus"></ha-icon>${this._t("batch_add")}
+    </button>`;
+  }
 
   private _onBackdrop = (ev: MouseEvent) => {
     if (ev.target === ev.currentTarget) this._closeDialog();
@@ -906,20 +1034,40 @@ export class StockPulseCard extends LitElement {
     if (!d || d.busy) return;
     const data = this._fromForm(d.data);
     this._dialog = { ...d, busy: true, error: undefined };
+    // With batches (or an item that had them) the batches are the stock; quantity and expiry are derived from them.
+    const batched = !!d.batches || !!d.originalBatches;
+    const rows = batched
+      ? normBatches(
+          d.batches
+            ? d.batches.map((r) => ({ quantity: r.quantity ?? 0, expiry: r.expiry }))
+            : [{ quantity: Number(data.quantity) || 0, expiry: data.expiry || null }]
+        )
+      : [];
+    const item = d.id ? this._snap?.items.find((i) => i.id === d.id) : undefined;
     try {
       if (d.mode === "add") {
+        const { quantity, expiry, ...others } = data;
         const fields = Object.fromEntries(
-          Object.entries(data).filter(([, v]) => v !== undefined && v !== null && v !== "")
+          Object.entries(batched ? others : data).filter(([, v]) => v !== undefined && v !== null && v !== "")
         );
+        // A list of batches carries the total; with none of them left the item starts empty.
+        if (batched) fields[rows.length ? "batches" : "quantity"] = rows.length ? rows : 0;
         await this._call({ type: `${WS}/item/add`, item: fields });
         this._query = "";
       } else {
         const { barcodes, ...rest } = data;
         const changes = diffFields<Record<string, unknown>>({ ...d.original, barcodes: undefined }, rest) as ItemFields;
         if (formatBarcodes(barcodes) !== formatBarcodes(d.original.barcodes)) changes.barcodes = barcodes;
+        if (batched) {
+          delete changes.quantity;
+          delete changes.expiry;
+          const was = normBatches(batchesOf({ quantity: d.original.quantity ?? 0, expiry: d.original.expiry ?? null, batches: d.originalBatches }));
+          if (JSON.stringify(rows) !== JSON.stringify(was)) changes.batches = rows;
+        }
         if (Object.keys(changes).length) {
           await this._call({ type: `${WS}/item/update`, item_id: d.id, changes });
         }
+        if (d.bought != null && item) await this._finishBought(item, d.bought);
       }
       this._closeDialog();
     } catch (err) {
@@ -956,7 +1104,7 @@ export class StockPulseCard extends LitElement {
   }
 
   /** "+9 rolls", "+2" for pieces, as the rows show quantities. */
-  private _amountText(item: Item, amount: number): string {
+  private _amountText(item: Pick<Item, "unit">, amount: number): string {
     const unit = item.unit === "pcs" ? "" : labelFor(this.hass, "unit", item.unit, amount);
     return unit ? `${fmtQty(amount)} ${unit}` : fmtQty(amount);
   }
@@ -969,17 +1117,29 @@ export class StockPulseCard extends LitElement {
   private async _onBought(item: Item, amount: number): Promise<void> {
     const d = this._dialog;
     if (!d || d.busy) return;
+    if (d.batches) {
+      // Bought stock has its own date: add a row for it and let Save send it, instead of guessing a batch.
+      const rows = d.batches.map((r) => ({ ...r }));
+      this._appendRow(rows, amount);
+      this._dialog = { ...d, batches: rows, bought: amount, error: undefined };
+      return;
+    }
     this._dialog = { ...d, busy: true, error: undefined };
     try {
       await this._call({ type: `${WS}/item/adjust`, item_id: item.id, amount });
-      if (item.shopping && !item.shopping.auto) {
-        await this._call({ type: `${WS}/item/shop`, item_id: item.id, on: false });
-      }
-      toast(this, this._t("restocked", { name: item.name, amount: this._amountText(item, amount) }));
+      await this._finishBought(item, amount);
       this._closeDialog();
     } catch (err) {
       if (this._dialog) this._dialog = { ...this._dialog, busy: false, error: errorMessage(err) };
     }
+  }
+
+  /** After the stock is in: an entry put on the list by hand goes, and a toast says what was added. */
+  private async _finishBought(item: Item, amount: number): Promise<void> {
+    if (item.shopping && !item.shopping.auto) {
+      await this._call({ type: `${WS}/item/shop`, item_id: item.id, on: false });
+    }
+    toast(this, this._t("restocked", { name: item.name, amount: this._amountText(item, amount) }));
   }
 
   /** Opened a pack: today becomes its opened-on date, one tap, like Bought. */
@@ -1197,17 +1357,13 @@ export class StockPulseCard extends LitElement {
   private async _adjust(item: Item, delta: number): Promise<void> {
     const snap = this._snap;
     if (!snap) return;
-    const quantity = Math.max(0, Math.round((item.quantity + delta) * 1000) / 1000);
-    if (quantity === item.quantity) return;
-    // Show the new count straight away; the integration's update follows.
-    // Using up the open pack drops its Opened date, as the integration does.
-    const finished = openPackFinished(item, item.quantity, quantity);
-    this._snap = {
-      ...snap,
-      items: snap.items.map((i) => (i.id === item.id ? { ...i, quantity, ...(finished ? { opened_on: null } : {}) } : i)),
-    };
+    // Show the new count straight away; the integration's update follows. It stores the same: the first-expiring
+    // batch is used first, + joins the latest, and using up the open pack drops its Opened date.
+    const next = adjusted(item, delta);
+    if (next.quantity === item.quantity) return;
+    this._snap = { ...snap, items: snap.items.map((i) => (i.id === item.id ? next : i)) };
     try {
-      await this._call({ type: `${WS}/item/adjust`, item_id: item.id, amount: quantity - item.quantity });
+      await this._call({ type: `${WS}/item/adjust`, item_id: item.id, amount: next.quantity - item.quantity });
     } catch (err) {
       toast(this, this._t("failed", { error: errorMessage(err) }));
     }

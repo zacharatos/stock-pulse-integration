@@ -566,6 +566,49 @@ export const dialogStyles = css`
     font-variant-numeric: tabular-nums;
   }
   .scan-manual input:focus-visible { outline: 2px solid var(--sp-accent); outline-offset: 0; }
+  /* Batches: one line per pack with its own date. Neutral like the rest; the + carries the accent. */
+  .batches {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 12px 0;
+  }
+  .batches-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .batches-title { font-size: 14px; font-weight: 500; color: var(--primary-text-color); }
+  .batches-sum {
+    min-width: 0;
+    font-size: 12px;
+    color: var(--secondary-text-color);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .batches-help, .batches-note { font-size: 12px; line-height: 16px; color: var(--secondary-text-color); }
+  .batches-help { margin-top: -4px; }
+  .batch {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+  }
+  .batch ha-form { min-width: 0; }
+  /* A text button: neutral text, the accent only on its icon. */
+  .link-btn {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 36px;
+    padding: 0 12px 0 8px;
+    border-radius: var(--sp-control-radius);
+    color: var(--primary-text-color);
+    font-size: 13px;
+    font-weight: 500;
+    transition: background-color var(--sp-motion-normal) var(--sp-ease);
+    --mdc-icon-size: 18px;
+  }
+  .link-btn ha-icon { color: var(--sp-accent); }
+  .link-btn:hover { background: var(--sp-neutral-bg); }
+  .d-body > .link-btn { margin-top: 8px; }
   .d-note { margin: -4px 2px 16px; font-size: 13px; line-height: 18px; color: var(--secondary-text-color); }
   .d-head .badge img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
   .d-error {

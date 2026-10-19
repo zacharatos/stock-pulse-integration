@@ -44,6 +44,13 @@ export interface ExternalBus {
   _commandHandler?: (msg: ExternalCommand) => boolean;
 }
 
+/** Packs of an item that share a best-before date. */
+export interface Batch {
+  quantity: number;
+  /** ISO date (YYYY-MM-DD), or null when this batch has none. */
+  expiry: string | null;
+}
+
 /** One item as stored by the integration. */
 export interface Item {
   id: string;
@@ -67,6 +74,11 @@ export interface Item {
   opened_on?: string | null;
   /** Days it keeps once opened; with opened_on it can bring the date forward. */
   days_after_opening?: number | null;
+  /**
+   * Two or more packs with their own dates, soonest first (undated last); empty for an item with one date.
+   * quantity is then their total and expiry the earliest date. Missing on items stored before 1.5.0.
+   */
+  batches?: Batch[];
   created: string;
   updated: string;
   shopping: { uid: string | null; summary: string; amount: number; auto: boolean } | null;
@@ -90,6 +102,7 @@ export type ItemFields = Partial<
     | "barcodes"
     | "opened_on"
     | "days_after_opening"
+    | "batches"
   >
 >;
 
@@ -104,6 +117,8 @@ export interface Snapshot {
     auto_add: boolean;
     auto_restock: boolean;
     expiring_days: number;
+    /** The inventory's Batches option: the sheet offers "Add a batch". Missing before 1.5.0. */
+    batches?: boolean;
   };
   units: string[];
   locations: string[];

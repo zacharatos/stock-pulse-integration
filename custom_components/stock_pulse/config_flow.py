@@ -14,12 +14,14 @@ from homeassistant.helpers import selector
 from .const import (
     CONF_AUTO_ADD,
     CONF_AUTO_RESTOCK,
+    CONF_BATCHES,
     CONF_EXPIRING_DAYS,
     CONF_MATCH_BY_NAME,
     CONF_REMOVE_COMPLETED,
     CONF_SHOPPING_LIST,
     DEFAULT_AUTO_ADD,
     DEFAULT_AUTO_RESTOCK,
+    DEFAULT_BATCHES,
     DEFAULT_EXPIRING_DAYS,
     DEFAULT_MATCH_BY_NAME,
     DEFAULT_NAME,
@@ -34,6 +36,7 @@ OPTION_KEYS = (
     CONF_MATCH_BY_NAME,
     CONF_REMOVE_COMPLETED,
     CONF_EXPIRING_DAYS,
+    CONF_BATCHES,
 )
 
 
@@ -54,6 +57,7 @@ def _options_schema(values: dict[str, Any]) -> dict[Any, Any]:
         ): selector.NumberSelector(
             selector.NumberSelectorConfig(min=0, max=60, step=1, mode=selector.NumberSelectorMode.BOX)
         ),
+        vol.Required(CONF_BATCHES, default=values.get(CONF_BATCHES, DEFAULT_BATCHES)): bool,
     }
 
 
