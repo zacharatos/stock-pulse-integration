@@ -51,6 +51,7 @@ const en: Dict = {
 
   f_name: "Name",
   f_quantity: "Quantity",
+  f_bought: "Bought",
   f_unit: "Unit",
   f_category: "Category",
   f_location: "Location",
@@ -61,6 +62,7 @@ const en: Dict = {
   f_notes: "Notes",
   f_icon: "Icon",
   h_min_quantity: "At or below this it counts as low",
+  h_bought: "Added to the {have} in stock",
   h_restock_quantity: "Empty: just enough to get back above it",
 
   not_installed: "The Stock Pulse integration isn't set up yet. Add it in Settings → Devices & services.",
@@ -77,7 +79,7 @@ const en: Dict = {
   scan_found: "Found in {source}. Check the details and save.",
   scan_not_found: "Not found online. Give it a name: the barcode is saved with it, so next time it's recognised.",
   scan_offline: "Couldn't look it up online. Give it a name: the barcode is saved with it.",
-  scan_known: "Scanned: +{amount}. Save to keep it.",
+  scan_known: "Scanned: enter how much you bought and its best-before date. Save adds it to the {have} in stock.",
   not_a_barcode: "That doesn't look like a barcode.",
   scan_type_only: "Type the numbers under the barcode below.",
   opened: "Opened",
@@ -216,6 +218,7 @@ const el: Dict = {
 
   f_name: "Όνομα",
   f_quantity: "Ποσότητα",
+  f_bought: "Αγοράστηκαν",
   f_unit: "Μονάδα",
   f_category: "Κατηγορία",
   f_location: "Θέση",
@@ -226,6 +229,7 @@ const el: Dict = {
   f_notes: "Σημειώσεις",
   f_icon: "Εικονίδιο",
   h_min_quantity: "Σε αυτή την ποσότητα ή λιγότερο θεωρείται ότι τελειώνει",
+  h_bought: "Προστίθενται στα {have} που υπάρχουν",
   h_restock_quantity: "Κενό: όσο χρειάζεται για να ξεπεράσει το όριο",
 
   not_installed: "Η ενσωμάτωση Stock Pulse δεν έχει ρυθμιστεί. Προσθέστε τη στις Ρυθμίσεις → Συσκευές & υπηρεσίες.",
@@ -242,7 +246,7 @@ const el: Dict = {
   scan_found: "Βρέθηκε στο {source}. Έλεγξε τα στοιχεία και αποθήκευσε.",
   scan_not_found: "Δεν βρέθηκε online. Δώσε του όνομα: το barcode αποθηκεύεται μαζί του, ώστε την επόμενη φορά να αναγνωριστεί.",
   scan_offline: "Δεν έγινε αναζήτηση online. Δώσε του όνομα: το barcode αποθηκεύεται μαζί του.",
-  scan_known: "Σαρώθηκε: +{amount}. Αποθήκευσε για να μείνει.",
+  scan_known: "Σαρώθηκε: γράψε πόσα αγόρασες και την ημερομηνία λήξης τους. Η Αποθήκευση τα προσθέτει στα {have} που υπάρχουν.",
   not_a_barcode: "Αυτό δεν μοιάζει με barcode.",
   scan_type_only: "Γράψε παρακάτω τους αριθμούς κάτω από το barcode.",
   opened: "Άνοιξε",

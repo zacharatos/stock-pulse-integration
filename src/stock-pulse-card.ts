@@ -40,7 +40,7 @@ import { cardStyles, dialogStyles } from "./styles";
 import { defineElement } from "./register";
 import "./editor";
 
-export const VERSION = "1.5.0";
+export const VERSION = "1.6.0";
 const WS = "stock_pulse";
 const GROUP_BY = ["category", "location", "none"];
 const FILTER_BY = ["location", "category", "both", "none"];
@@ -84,6 +84,11 @@ interface DialogState {
   originalBatches?: Batch[];
   /** Bought was tapped on an item with batches: this amount is a new row waiting for its date. */
   bought?: number;
+  /**
+   * A known item's barcode was scanned, which means it was bought: the quantity field (or the new batch row)
+   * holds what was bought, and Save adds it to the stock with a fresh best-before date and no opened date.
+   */
+  restock?: boolean;
   armed: boolean;
   busy: boolean;
   error?: string;
@@ -752,10 +757,15 @@ export class StockPulseCard extends LitElement {
     // An item with batches opens showing them; a scanned pack is a new row there, waiting for its date.
     const stored = item.batches ?? [];
     const batches: BatchRow[] | undefined = stored.length >= 2 ? stored.map((b) => ({ ...b })) : undefined;
-    // A known pack was scanned: one more of it, ready to confirm with Save.
+    // A known pack was scanned: it was bought. The sheet asks how much (one pack to start) and its best-before
+    // date, and Save adds that to the stock. New packs are sealed, so the old opened date goes.
     if (scan?.amount) {
       if (batches) this._appendRow(batches, scan.amount);
-      else form.quantity = Math.round((item.quantity + scan.amount) * 1000) / 1000;
+      else {
+        form.quantity = scan.amount;
+        form.expiry = undefined;
+      }
+      form.opened_on = undefined;
     }
     await loadHaElements();
     this._dialog = {
@@ -768,6 +778,7 @@ export class StockPulseCard extends LitElement {
       armed: false,
       busy: false,
       scan,
+      restock: !!scan?.amount,
       showBarcodes: !!form.barcodes,
       showOpened: !!form.opened_on,
     };
@@ -807,8 +818,12 @@ export class StockPulseCard extends LitElement {
     const bought = item && s && d.mode === "edit" ? boughtAmount(item, s) : null;
     // "Opened" for a pack in stock that isn't marked open yet; once it is, a pill says since when
     // (unless the date pill already says it).
-    const openable = !!item && !!s && d.mode === "edit" && !s.out && !item.opened_on;
-    const openedPill = !!s && s.openedDays != null && !(s.byOpening && (s.expired || s.soon));
+    // Not while a purchase is being entered: the new packs are sealed, and Save clears the opened date.
+    const buying = !!d.restock || d.bought != null;
+    const openable = !!item && !!s && d.mode === "edit" && !s.out && !item.opened_on && !buying;
+    const openedPill = !!s && s.openedDays != null && !(s.byOpening && (s.expired || s.soon)) && !buying;
+    // A plain item's best-before is replaced by the new packs' on Save, so the old date's pill would mislead.
+    const datePill = !!s && (s.expired || s.soon) && !!expiry && !(buying && !d.batches && !d.originalBatches);
 
     return html`
       <dialog class="sp-dialog" aria-label=${title} @close=${this._onDialogClosed} @click=${this._onBackdrop}>
@@ -822,14 +837,14 @@ export class StockPulseCard extends LitElement {
           </div>
           <div class="d-body">
             ${d.scan ? html`<div class="d-note">${this._scanNote(d.scan, item)}</div>` : nothing}
-            ${item && s && (s.out || s.low || s.onList || s.expired || s.soon || openable || openedPill)
+            ${item && s && (s.out || s.low || s.onList || datePill || openable || openedPill)
               ? html`<div class="d-status">
                   ${s.out
                     ? html`<span class="pill bad"><ha-icon icon="mdi:alert-circle-outline"></ha-icon>${this._t("out_of_stock")}</span>`
                     : s.low
                       ? html`<span class="pill warn"><ha-icon icon="mdi:alert-circle-outline"></ha-icon>${this._t("low")}</span>`
                       : nothing}
-                  ${(s.expired || s.soon) && expiry
+                  ${datePill
                     ? html`<span class=${classMap({ pill: true, bad: s.expired, warn: s.soon })}
                         ><ha-icon icon="mdi:clock-alert-outline"></ha-icon>${expiry}</span
                       >`
@@ -847,7 +862,7 @@ export class StockPulseCard extends LitElement {
                         <ha-icon icon="mdi:package-variant"></ha-icon>${this._t("opened")}
                       </button>`
                     : nothing}
-                  ${bought != null && d.bought == null
+                  ${bought != null && !buying
                     ? html`<button
                         class="bought"
                         aria-label=${this._t("bought_aria", { amount: this._amountText(item, bought) })}
@@ -862,7 +877,7 @@ export class StockPulseCard extends LitElement {
               : nothing}
             ${d.batches
               ? html`${this._renderForm(d, snap, "name")}${this._renderBatches(d)}${this._renderForm(d, snap, "rest")}`
-              : html`${this._renderForm(d, snap, "all")}${snap.settings.batches ? this._renderAddBatch() : nothing}`}
+              : html`${this._renderForm(d, snap, "all")}${snap.settings.batches && !d.restock ? this._renderAddBatch() : nothing}`}
             ${d.error ? html`<div class="d-error">${d.error}</div>` : nothing}
           </div>
           <div class="d-foot">
@@ -899,13 +914,19 @@ export class StockPulseCard extends LitElement {
   }
 
   private _renderForm(d: DialogState, snap: Snapshot, part: "all" | "name" | "rest"): TemplateResult {
+    // After a scan the quantity field is what was bought, added on Save to what is in stock.
+    const item = d.restock && !d.batches && !d.originalBatches ? snap.items.find((i) => i.id === d.id) : undefined;
     return html`<ha-form
       .hass=${this.hass}
       .data=${d.data}
       .schema=${this._schema(snap, d.showBarcodes, d.showOpened, part)}
-      .computeLabel=${(f: { name: string }) => this._t(`f_${f.name}`)}
+      .computeLabel=${(f: { name: string }) => (item && f.name === "quantity" ? this._t("f_bought") : this._t(`f_${f.name}`))}
       .computeHelper=${(f: { name: string }) =>
-        ["min_quantity", "restock_quantity", "barcodes"].includes(f.name) ? this._t(`h_${f.name}`) : undefined}
+        item && f.name === "quantity"
+          ? this._t("h_bought", { have: this._amountText(item, item.quantity) })
+          : ["min_quantity", "restock_quantity", "barcodes"].includes(f.name)
+            ? this._t(`h_${f.name}`)
+            : undefined}
       @value-changed=${this._onFormChanged}
     ></ha-form>`;
   }
@@ -1056,18 +1077,25 @@ export class StockPulseCard extends LitElement {
         this._query = "";
       } else {
         const { barcodes, ...rest } = data;
+        const was = normBatches(batchesOf({ quantity: d.original.quantity ?? 0, expiry: d.original.expiry ?? null, batches: d.originalBatches }));
+        // After a scan: what was bought, added to what is in stock now (the form's best-before is the new packs').
+        let restocked = 0;
+        if (d.restock && item) {
+          restocked = batched ? totalOf(rows) - totalOf(was) : Math.max(0, Number(rest.quantity) || 0);
+          if (!batched) rest.quantity = Math.round((item.quantity + restocked) * 1000) / 1000;
+        }
         const changes = diffFields<Record<string, unknown>>({ ...d.original, barcodes: undefined }, rest) as ItemFields;
         if (formatBarcodes(barcodes) !== formatBarcodes(d.original.barcodes)) changes.barcodes = barcodes;
         if (batched) {
           delete changes.quantity;
           delete changes.expiry;
-          const was = normBatches(batchesOf({ quantity: d.original.quantity ?? 0, expiry: d.original.expiry ?? null, batches: d.originalBatches }));
           if (JSON.stringify(rows) !== JSON.stringify(was)) changes.batches = rows;
         }
         if (Object.keys(changes).length) {
           await this._call({ type: `${WS}/item/update`, item_id: d.id, changes });
         }
         if (d.bought != null && item) await this._finishBought(item, d.bought);
+        else if (restocked > 0 && item) await this._finishBought(item, Math.round(restocked * 1000) / 1000);
       }
       this._closeDialog();
     } catch (err) {
@@ -1112,21 +1140,24 @@ export class StockPulseCard extends LitElement {
   /**
    * Bought without ticking the list (on the way home): add the amount in one go. The integration then
    * clears the entry it added; an entry put on the list by hand from this sheet is removed here too,
-   * so "bought" never leaves the item on the list.
+   * so "bought" never leaves the item on the list. New packs are sealed and don't share the old
+   * best-before date, so the opened date and the best-before date are cleared with it.
    */
   private async _onBought(item: Item, amount: number): Promise<void> {
     const d = this._dialog;
     if (!d || d.busy) return;
     if (d.batches) {
       // Bought stock has its own date: add a row for it and let Save send it, instead of guessing a batch.
+      // The other batches keep their dates (that stock is still there); the opened date goes on Save.
       const rows = d.batches.map((r) => ({ ...r }));
       this._appendRow(rows, amount);
-      this._dialog = { ...d, batches: rows, bought: amount, error: undefined };
+      this._dialog = { ...d, batches: rows, bought: amount, data: { ...d.data, opened_on: undefined }, showOpened: false, error: undefined };
       return;
     }
     this._dialog = { ...d, busy: true, error: undefined };
     try {
-      await this._call({ type: `${WS}/item/adjust`, item_id: item.id, amount });
+      const quantity = Math.round((item.quantity + amount) * 1000) / 1000;
+      await this._call({ type: `${WS}/item/update`, item_id: item.id, changes: { quantity, opened_on: null, expiry: null } });
       await this._finishBought(item, amount);
       this._closeDialog();
     } catch (err) {
@@ -1159,7 +1190,7 @@ export class StockPulseCard extends LitElement {
   // ---- Scanning -------------------------------------------------------------
 
   private _scanNote(scan: ScanNote, item?: Item): string {
-    if (scan.outcome === "item" && item) return this._t("scan_known", { amount: this._amountText(item, scan.amount ?? 0) });
+    if (scan.outcome === "item" && item) return this._t("scan_known", { have: this._amountText(item, item.quantity) });
     if (scan.outcome === "product") return this._t("scan_found", { source: SOURCES[scan.source ?? ""] ?? scan.source ?? "" });
     if (scan.outcome === "offline") return this._t("scan_offline");
     return this._t("scan_not_found");

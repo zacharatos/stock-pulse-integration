@@ -8,8 +8,8 @@ A household inventory for Home Assistant, with a shopping list that fills itself
 - Give an item a **threshold** and it goes on your shopping list by itself when stock drops to it.
 - **Tick it off the shopping list** when you buy it and the bought amount is added back to the inventory.
 - A card that looks at home next to the built-in cards: search and quick add, filter chips (status, plus categories and/or locations), grouping, +/- steppers, and an edit sheet. English and Greek.
-- **Bought it on the way home?** One tap on **Bought** in an item's sheet adds the amount you'd buy (or the amount on its shopping-list entry) and takes it off the list.
-- **Scan a barcode** to put the shopping away: a pack you already have opens with one more of it; a new one opens the add sheet with its name filled in from [Open Food Facts](https://world.openfoodfacts.org). The barcode stays with the item, so the next scan needs no internet.
+- **Bought it on the way home?** One tap on **Bought** in an item's sheet adds the amount you'd buy (or the amount on its shopping-list entry), clears the old opened and best-before dates, and takes it off the list.
+- **Scan a barcode** to put the shopping away: a pack you already have asks how many you bought and adds them to what you have; a new one opens the add sheet with its name filled in from [Open Food Facts](https://world.openfoodfacts.org). The barcode stays with the item, so the next scan needs no internet.
 
 Screenshots are from Home Assistant 2026.2 (sections view, built-in light and dark themes).
 
@@ -103,7 +103,7 @@ type: custom:stock-pulse-card
 filter_by: category
 ```
 
-A category or location chip shows once two or more are in use, in the built-in order (your own names after, A to Z). Tap a filter chip again to go back to everything; search narrows within the chip, and with `hide_out_of_stock` the chip hides what ran out, like the plain list. With a category chip selected, a new item starts in that category. In an item's sheet, **Bought** appears when the item is low, out, or on the shopping list: it adds the amount on the list entry (or the buy amount) in one go, and the entry disappears from the list, exactly as if you had ticked it off.
+A category or location chip shows once two or more are in use, in the built-in order (your own names after, A to Z). Tap a filter chip again to go back to everything; search narrows within the chip, and with `hide_out_of_stock` the chip hides what ran out, like the plain list. With a category chip selected, a new item starts in that category. In an item's sheet, **Bought** appears when the item is low, out, or on the shopping list: it adds the amount on the list entry (or the buy amount) in one go, and the entry disappears from the list, exactly as if you had ticked it off. The new packs are sealed and carry their own date, so **Bought** also clears the item's *Opened on* and best-before dates (with batches, it adds a row to date instead and the other batches keep theirs).
 
 ## Opened packs
 
@@ -129,7 +129,7 @@ Two packs of mince frozen on different days, or yoghurts from two shops: one dat
 
 The **barcode button** in the card's header opens a barcode scanner. Point the phone at the barcode on a pack:
 
-- **A pack you already have** (its barcode is on an item): that item's sheet opens with one more of it added, its *Buy amount* if it has one (a 9-pack of rolls, a 400 g block), otherwise one step. **Save** keeps it.
+- **A pack you already have** (its barcode is on an item): scanning it means you bought it. The item's sheet opens with its quantity field turned into **Bought**, starting at one pack (its *Buy amount* if it has one, a 9-pack of rolls or a 400 g block, otherwise one step). Change it to what you bought (scan with 1 in stock, type 2, end up with 3) and give the new packs their best-before date. **Save** adds them; the new packs are sealed, so the old *Opened on* date is cleared, and the best-before date becomes the one you entered (empty if you left it empty). With batches, the purchase is a new batch row instead and the other batches keep their dates.
 - **A new pack:** the add sheet opens with the name, a category and the brand and pack size (in *Notes*) from [Open Food Facts](https://world.openfoodfacts.org), or from Open Beauty Facts and Open Products Facts for toiletries and household things. Check it, add a date or a threshold, and save.
 - **Not in any database** (many local and own-brand products aren't): the add sheet opens empty. Give it a name and save. The barcode is kept either way, so the next scan of that pack is recognised straight away.
 
